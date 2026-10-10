@@ -1,0 +1,17 @@
+# Core engine (bundled pageindex-rag) — PDF normalization + tree indexing
+pymupdf>=1.24
+markdown>=3.5
+mammoth>=1.6
+python-pptx>=0.6.21
+openpyxl>=3.1
+xlrd>=2.0
+openai>=1.30
+
+# PageIndex is on official PyPI ONLY (some mirrors lack it and hang).
+# If this fails on a mirror: pip install pageindex --index-url https://pypi.org/simple
+pageindex>=0.1
+
+# Optional: semantic recall layer (`cenhua seek` / `cenhua index build`).
+# The CLI degrades gracefully without numpy; remove this line if you never
+# plan to use embeddings.
+numpy>=1.26

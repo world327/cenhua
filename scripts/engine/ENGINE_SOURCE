@@ -1,0 +1,19 @@
+Bundled engine provenance
+=========================
+
+files       : *.py in this directory (pi_ingest, pi_flatten, pi_query,
+              conv_office, conv_image, conv_scan, batch_ingest,
+              scan_corpus, scan_number, id_verify)
+source      : pageindex-rag skill v1.2.0 (MIT), local copy at
+              <upstream-checkout>/pageindex-rag/scripts/
+synced      : 2026-10-10, byte-identical
+policy      : CENHUA must NOT edit these files. All integration happens in
+              ../m_lib.py via subprocess + PI_* env vars. tests/test_cenhua.py
+              (test_61) fails if any engine file is modified.
+
+upgrade     : 1) cp <upstream>/scripts/*.py this-directory/
+              2) rm -rf __pycache__
+              3) CENHUA's contract (PI_STORE + "+ name -> doc_id" line parse in
+                 m_ingest.py, pages.json field names in m_lib.text_pages) must
+                 be re-checked against upstream changes
+              4) python3 tests/test_cenhua.py  (offline suite)

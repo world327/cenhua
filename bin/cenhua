@@ -1,0 +1,11 @@
+#!/bin/sh
+# cenhua — stable entry point for the CENHUA skill.
+#
+# Resolves its own location, so it works from any install path:
+#   ~/.openclaw/skills/cenhua/bin/cenhua        (OpenClaw skill install)
+#   <clone>/bin/cenhua                          (git clone)
+# No dependency on ~/.local/bin or any PATH edit; `python3` must be on PATH
+# (that is the skill's one hard requirement, declared in SKILL.md).
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec "${CENHUA_PYTHON:-python3}" "$ROOT/scripts/m_cenhua.py" "$@"
