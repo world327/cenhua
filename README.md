@@ -31,12 +31,12 @@ OpenAI-compatible endpoint works — hosted or fully local (Ollama/vLLM).
 **A. Through your agent (recommended): send the GitHub link.**
 CENHUA is a standard OpenClaw skill (SKILL.md at repo root). Tell your agent:
 
-> install this skill: https://github.com/<you>/cenhua
+> install this skill: https://github.com/world327/cenhua
 
 or run it yourself:
 
 ```bash
-openclaw skills install git:github.com/<you>/cenhua
+openclaw skills install git:github.com/world327/cenhua
 openclaw skills check          # cenhua should show ✓ ready
 # agent's first run (or yours):
 ~/.openclaw/skills/cenhua/bin/cenhua setup     # deps + default vault
@@ -64,7 +64,7 @@ configured image model — auto-used for vision — are marked). Check anytime w
 **B. Plain CLI:**
 
 ```bash
-git clone https://github.com/<you>/cenhua && cd cenhua
+git clone https://github.com/world327/cenhua && cd cenhua
 ./bin/cenhua setup                    # pip deps + default vault
 export PI_BASE=https://api.example.com/v1  PI_KEY=***  PI_MODEL=openai/gpt-4o-mini
 

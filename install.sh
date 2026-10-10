@@ -24,5 +24,5 @@ echo
 echo "done. verify:   ./bin/cenhua doctor"
 echo
 echo "as an OpenClaw skill (no install.sh needed there — agent runs setup):"
-echo "  openclaw skills install git:github.com/<you>/cenhua"
+echo "  openclaw skills install git:github.com/world327/cenhua"
 echo "  # or local:  openclaw skills install $PWD"

@@ -76,7 +76,7 @@
 ## 一键安装（OpenClaw）
 
 把本仓库 GitHub 链接发给智能体即可："install this skill:
-https://github.com/<you>/cenhua"。OpenClaw 会 `skills install git:...` 装到
+https://github.com/world327/cenhua"。OpenClaw 会 `skills install git:...` 装到
 工作区技能目录；首次使用让智能体执行技能目录下的 `bin/cenhua setup`
 （自动装 Python 依赖并建默认库）。网关密钥配置到
 `~/.openclaw/openclaw.json` 的 `skills.entries.cenhua.env`（PI_BASE/PI_KEY/
