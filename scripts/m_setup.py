@@ -314,13 +314,31 @@ def confirm_location(vault_name, choice):
     return LOC_EXIT
 
 
+def ensure_ocr():
+    """Verify the local OCR backend (RapidOCR) is installed. It is a REQUIRED
+    dependency for image/scan intake (see requirements.txt); if missing, tell
+    the user how to install it and keep going — the vision model still works
+    as a fallback, so setup never hard-fails on this."""
+    import importlib.util
+    for mod in ("rapidocr_onnxruntime", "rapidocr"):
+        if importlib.util.find_spec(mod):
+            return True
+    L.say("! RapidOCR not installed — images/scans will use the vision model")
+    L.say("  install it with:  pip install rapidocr-onnxruntime")
+    L.say("  (it is a required dependency in requirements.txt)")
+    return False
+
+
 def feature_report(vault=None):
     env = L.build_env(vault)
+    import m_ocr
     feats = [
         ("offline find/read/status", True),
         ("ingest + ask (needs PI_BASE/PI_KEY)",
          bool(env.get("PI_BASE") and env.get("PI_KEY"))),
-        ("images & scans (needs PI_VISION_MODEL)", bool(env.get("PI_VISION_MODEL"))),
+        ("local OCR for images & scans (RapidOCR)", m_ocr.available()),
+        ("vision fallback for images/scans (needs PI_VISION_MODEL)",
+         bool(env.get("PI_VISION_MODEL"))),
         ("semantic recall (needs PI_EMBED_MODEL)", bool(env.get("PI_EMBED_MODEL"))),
     ]
     L.say("\nfeatures:")
@@ -365,6 +383,8 @@ def setup(vault_name=None, with_vault=True, for_openclaw=False, gateway=None,
     if not deps_ok:
         L.say("! LLM stack incomplete — offline mode (find/read/status) still works;")
         L.say("  fix later with: cenhua setup   (or pip install -r requirements.txt)")
+
+    ensure_ocr()   # local OCR for images/scans; vision model stays the fallback
 
     # Decision 2 of 2: which LLM gateway (never silently taken).
     if v is not None and deps_ok:

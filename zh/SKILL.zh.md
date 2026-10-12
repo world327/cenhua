@@ -88,7 +88,7 @@ PI_MODEL...），用 `openclaw skills check` 确认 cenhua 为 ✓ ready。
 export PI_BASE=https://api.example.com/v1   # 任意 OpenAI 兼容端点
 export PI_KEY=***
 export PI_MODEL=openai/gpt-4o-mini          # 必须带 openai/ 前缀（LiteLLM 路由）
-export PI_VISION_MODEL=视觉模型裸ID          # 仅图片/扫描件需要，不要带前缀
+export PI_VISION_MODEL=视觉模型裸ID          # 视觉兜底：本地RapidOCR优先，读不出才用它；不要带前缀
 export PI_EMBED_MODEL=text-embedding-v3     # 可选：语义召回层
 export PI_EMBED_BASE=...  PI_EMBED_KEY=...  # 不设则复用 PI_BASE / PI_KEY
 ```
@@ -103,6 +103,8 @@ md / txt / html / csv / 图片 / 扫描件）丢进去，然后 `cenhua add --in
 或者让 `cenhua watch` 常驻。sha1 去重不重复计费；失败文件进 `inbox/.failed/`
 并把原因写进 `logs/`——绝不静默丢弃。每次摄取成功后自动重建文本层，
 所以 `find` 的结果始终可信。
+图片与扫描件先用本地 RapidOCR 转写（离线、免费，`cenhua setup` 尽力安装）；
+它读不出时才用视觉大模型兜底，`CENHUA_OCR=vision` 可强制走大模型路线。
 
 ## 回答纪律
 

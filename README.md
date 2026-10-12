@@ -78,9 +78,10 @@ Works offline: `find`, `read`, `status`, `doctor`, `sources` need no LLM at all.
 
 ## Supported inputs
 
-`pdf` (scans auto-routed to vision OCR) · `md txt html csv` ·
+`pdf` (scans OCR'd locally by RapidOCR first) · `md txt html csv` ·
 `docx pptx xlsx xls` (pure-python, no LibreOffice) · images `jpg png webp bmp gif`
-(vision model). Everything is normalized to a hardened PDF before indexing;
+(transcribed by local RapidOCR — free & offline; the vision model is only the
+fallback). Everything is normalized to a hardened PDF before indexing;
 duplicates are refused by sha1 (no double billing).
 
 ## Commands
@@ -113,6 +114,7 @@ cenhua/
 │   ├── m_vault.py           # init / status / doctor / provenance
 │   └── engine/              # bundled pageindex-rag engine (kept upstream-pure)
 ├── references/              # pitfalls · intake · retrieval playbook (load on demand)
+├── docs/                    # design · architecture · user-guide · pitfalls
 └── tests/                   # offline unit tests + smoke script (no API needed)
 ```
 

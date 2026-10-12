@@ -76,10 +76,11 @@ why CENHUA is shaped the way it is. `cenhua doctor` automates most checks.
 
 ## Scanned and image-only PDFs
 
-- Probe the text layer first (`get_text()` per page; all blank = scan). Without
-  a local OCR engine: render pages at `Matrix(2.5)` → PNG → a vision model
-  transcribes → markdown → ingest the transcript. **Index quality = transcript
-  quality; say so in answers.**
+- Probe the text layer first (`get_text()` per page; all blank = scan). CENHUA's
+  m_ocr layer already does the local route: render blank pages → PNG → RapidOCR
+  → transcript PDF, vision model only when RapidOCR is missing or reads nothing
+  (force it with `CENHUA_OCR=vision`). **Index quality = transcript quality;
+  say so in answers.**
 - `PI_VISION_MODEL` must be a BARE model id (the OpenAI SDK does
   `GET {base}/models`); a LiteLLM-style `openai/xxx` prefix 404s on raw
   endpoints. Many "flash" chat models are not vision-capable and fail with

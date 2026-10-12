@@ -22,8 +22,49 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import m_lib as L  # noqa: E402
+import m_ocr  # noqa: E402
 
 ADDED_RE = re.compile(r"^\+\s(.+?)\s->\s(\S+)\s")
+
+
+def restore_provenance(vault, doc_id, orig_path, name):
+    """After a local-OCR preconvert ingest the engine ledger row describes the
+    transcription PDF. Rewrite it to the ORIGINAL upload (name, source path,
+    archived copy) so citations and `cenhua sources` keep pointing at the real
+    source file; sources/ holds originals only."""
+    man_path = os.path.join(vault.store, "ingest_manifest.json")
+    man = L.read_json(man_path, {}) or {}
+    rec = man.get(doc_id)
+    if not rec:
+        return
+    old_stored = rec.get("stored_as", "")
+    digest = L.sha1(orig_path)
+    srcdir = os.path.join(vault.store, "sources")
+    os.makedirs(srcdir, exist_ok=True)
+    stored = os.path.join(srcdir, name)
+    if os.path.exists(stored) and L.sha1(stored) != digest:
+        stem, suf = os.path.splitext(name)
+        stored = os.path.join(srcdir, f"{stem}_{digest[:8]}{suf}")
+    try:
+        if not os.path.exists(stored):
+            import shutil
+            shutil.copy2(orig_path, stored)
+    except OSError as e:
+        L.err(f"! could not archive original ({e}); ledger still rewritten")
+        stored = old_stored
+    rec.update({"name": name, "source": orig_path, "stored_as": stored})
+    import json
+    with open(man_path, "w", encoding="utf-8") as f:
+        json.dump(man, f, ensure_ascii=False, indent=1)
+    # the engine archived our transcription PDF; drop that copy (the OCR PDF
+    # stays at its cache path under meta/ocr/) so sources/ = true originals
+    if old_stored and old_stored != stored \
+            and old_stored.startswith(os.path.join(vault.store, "sources")) \
+            and os.path.isfile(old_stored):
+        try:
+            os.remove(old_stored)
+        except OSError:
+            pass
 
 
 def dedupe_index(vault):
@@ -82,13 +123,19 @@ def ingest_one(vault, path, quiet=False):
     if not quiet:
         L.say(f"> ingesting {name} ... (tree index: minutes for long PDFs; "
               f"logs -> {vault.logs})")
-    rc, out = L.run_engine("pi_ingest.py", [path], vault, capture=True)
+    engine_in, ocr_route = m_ocr.preconvert(path, vault, digest)
+    if ocr_route:
+        L.say(f"! {name}: local OCR ({m_ocr.backend()}) -> "
+              f"{os.path.basename(engine_in)}")
+    rc, out = L.run_engine("pi_ingest.py", [engine_in], vault, capture=True)
     vault.log("ingest", out.strip().splitlines() or [f"(no output, rc={rc})"])
     m = ADDED_RE.search(out)
     if rc == 0 and m:
         doc_id = m.group(2)
         d[digest] = {"doc_id": doc_id, "name": name, "ts": time.strftime("%F %T")}
         save_dedupe(vault, d)
+        if ocr_route:
+            restore_provenance(vault, doc_id, path, name)
         stage(path, vault.processed)
         if not quiet:
             L.say(f"+ {name} -> doc_id {doc_id}  ({time.time()-t0:.0f}s)")

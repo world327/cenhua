@@ -10,15 +10,15 @@ the decisions that remain are about *quality* and *cost*.
 |---|---|---|
 | Native-text PDF | indexed directly | — |
 | Password-protected PDF | engine refuses; ingest fails loudly | try filename digit-runs as the password, save `<name>-decrypted.pdf`, ingest that; never log the password |
-| Image-only scan PDF | per-page probe: text pages kept verbatim, blank pages → vision OCR | `PI_VISION_MODEL` set and vision-capable; page count vs `--max-pages` quota (default 40) |
-| Screenshot / photo | vision transcription → PDF with a real text layer | warn the user: index quality = transcript quality |
+| Image-only scan PDF | per-page probe: text pages kept verbatim, blank pages → local RapidOCR (vision model fallback) | RapidOCR installed (else `PI_VISION_MODEL` set and vision-capable) |
+| Screenshot / photo | local RapidOCR transcription → PDF with a real text layer (vision fallback) | warn the user: index quality = transcript quality |
 | Roster / very wide table (≥20 cols) | `conv_office.py` emits per-record blocks, not one wide table | if you pre-convert to markdown yourself, use per-record `## name` + `field: value` blocks |
 | Chat-log / huge CSV export | fine as-is below ~1500 pages | above that, split into ~500-page volumes and ingest per volume |
 | Office (docx/pptx/xlsx/xls) | pure-python converters, no LibreOffice | nothing |
 
 ## Transcription contract (applies to every image/scan)
 
-The vision step is instructed to follow this, and you must hold to it when you
+The vision fallback is instructed to follow this, and you must hold to it when you
 summarize what it produced:
 
 - Keep digits verbatim (amounts, account numbers, IDs). Never "fix" one.

@@ -308,7 +308,8 @@ class CenhuaTest(unittest.TestCase):
         r = run(["doctor", "--vault", "t"], self.home)
         self.assertIn("python", r.stdout)
         self.assertIn("PI_BASE/PI_KEY not set", r.stdout)  # reported, not fatal
-        self.assertIn("no PI_VISION_MODEL", r.stdout)
+        self.assertIn("images & scanned PDFs", r.stdout)
+        self.assertIn("local OCR (RapidOCR)", r.stdout)
 
     def test_41_doctor_flags_empty_text_layer(self):
         p = self.vault_paths()

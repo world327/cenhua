@@ -6,6 +6,9 @@ rc=0
 echo "== unit (24 tests, real pi_flatten/pi_query offline halves)"
 python3 -W ignore::ResourceWarning tests/test_cenhua.py -q || rc=1
 echo
+echo "== local OCR layer (RapidOCR stubbed, real renderers)"
+python3 tests/test_ocr.py 2>&1 | tail -3 || rc=1
+echo
 echo "== semantic layer vs mock embeddings endpoint"
 python3 tests/test_vectors_live.py || rc=1
 echo

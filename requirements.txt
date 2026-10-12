@@ -11,7 +11,14 @@ openai>=1.30
 # If this fails on a mirror: pip install pageindex --index-url https://pypi.org/simple
 pageindex>=0.1
 
-# Optional: semantic recall layer (`cenhua seek` / `cenhua index build`).
+# Optional semantic recall layer (`cenhua seek` / `cenhua index build`).
 # The CLI degrades gracefully without numpy; remove this line if you never
 # plan to use embeddings.
 numpy>=1.26
+
+# Local OCR for images & scanned PDFs (RapidOCR, primary path; the vision LLM
+# is only the fallback when RapidOCR is missing or its recognition quality is
+# below threshold). REQUIRED for image/scan intake — `cenhua setup` installs
+# it as part of the normal dependency set. Heavy (~150 MB incl. onnxruntime
+# + bundled models).
+rapidocr-onnxruntime>=1.3

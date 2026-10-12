@@ -206,17 +206,23 @@ def doctor(v):
         warns.append("PI_BASE/PI_KEY not set -> cenhua ask disabled "
                      "(find/flatten/status still work)")
 
-    L.say(f"\n[3] vision (images & scanned PDFs)")
+    L.say(f"\n[3] images & scanned PDFs")
+    import m_ocr
+    if m_ocr.available():
+        L.say("  local OCR (RapidOCR): on - transcription free & offline")
+    else:
+        L.say("  local OCR (RapidOCR): off (pip install rapidocr-onnxruntime)")
     vm = env.get("PI_VISION_MODEL")
     if vm:
         vb = env.get("PI_VISION_BASE") or env.get("PI_BASE")
         ok, detail = L.probe_models(vb, env.get("PI_VISION_KEY") or env.get("PI_KEY"))
-        L.say(f"  {vm} @ {vb} -> {'ok' if ok else 'FAIL'}: {detail}")
+        L.say(f"  vision fallback {vm} @ {vb} -> {'ok' if ok else 'FAIL'}: {detail}")
         if vm.startswith("openai/"):
             warns.append("PI_VISION_MODEL must be a BARE model id "
                          "(the openai/ prefix 404s on raw endpoints)")
-    else:
-        warns.append("no PI_VISION_MODEL -> images/scans will not ingest")
+    elif not m_ocr.available():
+        warns.append("no RapidOCR and no PI_VISION_MODEL -> images/scans "
+                     "will not ingest")
 
     L.say(f"\n[4] embeddings (optional semantic recall)")
     import m_vectors

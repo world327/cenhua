@@ -62,7 +62,7 @@ cost LLM calls:
   cenhua gateway        # shows base/model, key: ***
   ```
   `cenhua gateway list` shows the providers (marking OpenClaw's own primary
-  model and any configured image model, which becomes the vision model).
+  model and any configured image model, the vision FALLBACK for images/scans).
 - Never pick a provider or model silently, and never copy a key into a vault
   file: the OpenClaw choice stores a *reference* and resolves it at call time.
 
@@ -81,7 +81,7 @@ misses. Reserve `ask` for summaries, characterizations and cross-page inference.
 
 | User wants | Command | Costs |
 |---|---|---|
-| store uploaded files | `cenhua add <paths>` or drop into `<vault>/inbox` then `cenhua add --inbox` | 1 LLM index/doc |
+| store uploaded files | `cenhua add <paths>` or drop into `<vault>/inbox` then `cenhua add --inbox` | 1 LLM index/doc (image/scan transcription: local, free) |
 | keep inbox ingested automatically | `cenhua watch` (background) | same |
 | "where does X appear? / does my corpus mention X?" | `cenhua find <term>...` | offline, free |
 | narrow to one document | `cenhua find X -d <doc-kw>` | offline, free |
@@ -132,7 +132,7 @@ Every command below is written as `cenhua ...` and means that binary.
 export PI_BASE=https://api.example.com/v1   # any OpenAI-compatible endpoint
 export PI_KEY=***                        # keys live in env ONLY, never on disk
 export PI_MODEL=openai/gpt-4o-mini          # needs the openai/ prefix
-export PI_VISION_MODEL=vision-model-id      # bare id, only for images/scans
+export PI_VISION_MODEL=vision-model-id      # bare id; FALLBACK for images/scans (local RapidOCR runs first)
 # optional semantic recall layer:
 export PI_EMBED_MODEL=text-embedding-v3
 cenhua init default --title "Everything"    # add more: cenhua init contracts
@@ -146,6 +146,9 @@ then `cenhua add --inbox` (or leave `cenhua watch` running). Duplicates are
 skipped by sha1 (no double billing); failures move to `inbox/.failed/` with the
 reason in `logs/` — nothing is silently dropped. After every successful ingest
 the CLI flattens the text layer automatically; that is why `find` is trustworthy.
+Images and scanned PDFs are transcribed LOCALLY by RapidOCR (installed
+best-effort by `cenhua setup`; free, offline); the vision model only handles
+what RapidOCR cannot read. `CENHUA_OCR=vision` forces the LLM route.
 
 ## Answer discipline
 
@@ -163,7 +166,7 @@ the CLI flattens the text layer automatically; that is why `find` is trustworthy
   engine/         PageIndex store: manifest.json docs/ text/ sources/ pdf/
   engine/sources/ ★ archived originals — provenance survives file deletion
   works/          drafts and exports
-  meta/           dedupe index, LLM call ledger, optional vectors/
+  meta/           dedupe index, LLM call ledger, optional vectors/, OCR cache
   logs/           ingest + query history
 ```
 
