@@ -103,6 +103,20 @@
 - `pi_ingest`（文档→PDF→索引）、`pi_flatten`（文本层）、`pi_query`（检索）、
   `conv_*`（格式转换）。
 
+### 2.11 `cenhua_service/` — service 层（M1a 起）
+
+契约登记制（`docs/service-contract.md`），service 函数禁 `print`/`exit`
+（`test_70_service_no_print` 全量生效）：
+
+- `cost.py`：pricing.json 加载、OpenClaw 全名匹配（F9）、token 估算、金额换算、
+  cost-ledger 全量记账、`cost` 汇总（摄取成本单列首位）、预估校准闭环。
+- `verify.py`：`verify_citation(doc, page, snippet)` 三参原语（F2），NFKC 归一 +
+  去空白 + 全半角折叠后正则匹配；门禁与草稿校验的单一事实源。
+- `bench.py`：`cenhua bench` 门禁（fixture 阻断级 / 用户库报告模式）、引文按条目
+  计量（F7）、拒答非确定性治理（flaky.jsonl，F6.3）。
+
+CLI 层（`m_cost.py`）只做薄包装与输出，逻辑全部下沉到 service 层。
+
 ## 3. 关键数据流
 
 ### 3.1 摄取（含本地 OCR）
@@ -187,6 +201,9 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 | `PI_BASE`/`PI_KEY`/`PI_MODEL` | env | — | LLM 网关 |
 | `PI_VISION_MODEL` | env | — | 视觉兜底模型（裸 ID） |
 | `PI_EMBED_MODEL` | env | — | 向量模型 |
+| `CENHUA_MAX_COST_CNY` | env / vault.yaml `max_cost` | `2.0` | 单命令花费上限（M1a）；不适用 add/watch 与长任务/批量任务 |
+| `CENHUA_LONGJOB_MAX_COST_CNY` | env / vault.yaml `longjob_max_cost` | `5.0` | 长任务（digest/draft）独立预算（M1a 起登记） |
+| `CENHUA_PRICING` | env | `pricing.json` | 单价表覆盖路径（M1a） |
 
 ## 6. 扩展点
 

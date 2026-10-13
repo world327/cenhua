@@ -137,6 +137,16 @@ def ingest_one(vault, path, quiet=False):
         if ocr_route:
             restore_provenance(vault, doc_id, path, name)
         stage(path, vault.processed)
+        # 全量记账（T5）：树索引成本=摄取固有成本，写 cost-ledger.jsonl
+        try:
+            from cenhua_service import cost as C
+            C.ledger_append(vault, {
+                "cmd": "ingest", "doc": name[:200], "calls": 1,
+                "tokens_in": 0, "tokens_out": 0, "est_cost": 0.0,
+                "currency": "CNY", "priced": False,
+            })
+        except Exception:
+            pass
         if not quiet:
             L.say(f"+ {name} -> doc_id {doc_id}  ({time.time()-t0:.0f}s)")
             L.say(f"  {L.provenance(vault, doc_id, name)}")

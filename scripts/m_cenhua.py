@@ -56,6 +56,12 @@ RETRIEVAL
   index [build|status]              optional semantic (embedding) layer
   seek "question" [--top N]         semantic recall — a net, not the answer
 
+COST & QUALITY
+  cost [--month YYYY-MM]            cost ledger summary, grouped by command
+                                    (ingest cost listed first)
+  bench [--corpus]                  quality gate: fixture (blocking) or
+                                    user-vault QA (report mode)
+
 Examples
   cenhua init contracts --title "Client contracts"
   cp ~/Downloads/*.pdf ~/.cenhua/vaults/contracts/inbox/
@@ -266,6 +272,14 @@ def main():
         return 0
 
     v = L.Vault(vname)
+
+    if cmd == "cost":
+        import m_cost
+        month = rest[rest.index("--month") + 1] if "--month" in rest else None
+        return m_cost.cost_cmd(v, month=month)
+    if cmd == "bench":
+        import m_cost
+        return m_cost.bench_cmd(v, corpus=flag(rest, "--corpus"))
 
     if cmd == "status":
         import m_vault

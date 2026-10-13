@@ -1,0 +1,27 @@
+{
+  "_comment": "CENHUA 单价表（随包分发，可覆盖）。model -> {in, out, currency} 每 1K token 价格（USD 或 CNY）。OpenClaw 全名匹配规则（F9）：先按 openclaw:provider/model 全名精确匹配 -> 再按裸 model id 匹配 -> 未命中用保守默认价 + 输出标注。",
+  "currency_note": "混合货币不强行折算，显示如 ¥0.35 + $0.02 加汇率提示脚注。",
+  "models": {
+    "openai/gpt-4o-mini": {"in": 0.00015, "out": 0.0006, "currency": "USD"},
+    "gpt-4o-mini": {"in": 0.00015, "out": 0.0006, "currency": "USD"},
+    "openai/gpt-4o": {"in": 0.0025, "out": 0.01, "currency": "USD"},
+    "gpt-4o": {"in": 0.0025, "out": 0.01, "currency": "USD"},
+    "openai/gpt-4.1-mini": {"in": 0.0004, "out": 0.0016, "currency": "USD"},
+    "gpt-4.1-mini": {"in": 0.0004, "out": 0.0016, "currency": "USD"},
+    "anthropic/claude-3-5-haiku": {"in": 0.0008, "out": 0.004, "currency": "USD"},
+    "claude-3-5-haiku": {"in": 0.0008, "out": 0.004, "currency": "USD"},
+    "anthropic/claude-3-5-sonnet": {"in": 0.003, "out": 0.015, "currency": "USD"},
+    "claude-3-5-sonnet": {"in": 0.003, "out": 0.015, "currency": "USD"},
+    "deepseek/deepseek-chat": {"in": 0.00027, "out": 0.0011, "currency": "CNY"},
+    "deepseek-chat": {"in": 0.00027, "out": 0.0011, "currency": "CNY"},
+    "deepseek/deepseek-reasoner": {"in": 0.00055, "out": 0.0022, "currency": "CNY"},
+    "deepseek-reasoner": {"in": 0.00055, "out": 0.0022, "currency": "CNY"},
+    "qwen/qwen-plus": {"in": 0.0008, "out": 0.002, "currency": "CNY"},
+    "qwen-plus": {"in": 0.0008, "out": 0.002, "currency": "CNY"},
+    "qwen/qwen-turbo": {"in": 0.0003, "out": 0.0006, "currency": "CNY"},
+    "qwen-turbo": {"in": 0.0003, "out": 0.0006, "currency": "CNY"},
+    "qwen/qwen-max": {"in": 0.0024, "out": 0.0096, "currency": "CNY"},
+    "qwen-max": {"in": 0.0024, "out": 0.0096, "currency": "CNY"}
+  },
+  "default": {"in": 0.0005, "out": 0.0015, "currency": "USD"}
+}

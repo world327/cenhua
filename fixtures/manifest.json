@@ -1,0 +1,11 @@
+{
+  "_comment": "CENHUA bench fixture 冻结产物清单（F6.1）。随包分发已建好的 text layer + QA；合成语料源文件一并打包供审计，但 bench 不重建索引。存在性+溯源子集零 LLM 零网络。",
+  "engine_version": "0.1.0",
+  "text_layer": "fixtures/text/",
+  "corpus_sources": "fixtures/corpus/",
+  "qa": "fixtures/qa.json",
+  "docs": [
+    "contract_alpha", "quarterly_report", "nda_sample",
+    "sow_project", "privacy_policy", "budget_2026", "risk_register"
+  ]
+}

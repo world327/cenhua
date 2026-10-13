@@ -91,6 +91,15 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 - 慢的"搜索"几乎总是 LLM 链（树导航 + 回答 = 每文档 ≥2 次往返，failover 会
   放大挂起），不是本地扫描。先 profile 再怪检索——`find` 是免费的。
 - 本地 OCR 免费，能显著降低图片/扫描摄取成本。
+- **全量记账，仅免预算闸**（M1a）：所有 LLM 调用（含摄取树索引）都写
+  `cost-ledger.jsonl`，`cenhua cost` 按命令分组，摄取成本单列首位。用户见账
+  必须等于实烧，杜绝"见账 3 元、实烧 30 元"。
+- **预算闸豁免**：`CENHUA_MAX_COST_CNY`/`CENHUA_MAX_LLM_CALLS` 不适用
+  `add`/`watch`（摄取无预算拒执，防半成品库）；长任务/批量任务豁免中途执法。
+- **单价表过期**：预估偏差 >3x 会告警（`cenhua cost` 校准闭环），此时核对
+  `pricing.json` 单价是否过期。
+- **混合货币**：不同模型用不同货币时，`cenhua cost` 不强行折算，显示
+  `¥0.35 + $0.02` 加汇率提示脚注。
 
 ## 7. 安装与决策
 
@@ -101,6 +110,10 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 
 ## 8. 测试
 
-- 全套离线测试：`bash tests/run_tests.sh`（unit 34 + OCR 14 + semantic +
-  formats + smoke），无需 API key。
+- 全套离线测试：`bash tests/run_tests.sh`（unit 34 + **service 19** + OCR 14 +
+  semantic + formats + smoke），无需 API key。
 - 本地 OCR 单测：`python3 tests/test_ocr.py`（后端打桩、渲染真实）。
+- **service 层纪律**：`cenhua_service/` 禁 `print`/`exit`（`test_70` 全量生效）；
+  白名单命令 CLI 薄包装（`test_71`，M1a: cost/bench）。
+- **质量门禁**：`cenhua bench` 跑 fixture（存在性 100% + 引文条目 ≥95%），
+  发版前必跑；`--corpus` 跑用户库 QA（报告模式）。

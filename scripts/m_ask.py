@@ -39,6 +39,18 @@ def record(vault, n, mode, docs):
     os.makedirs(vault.meta, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=1)
+    # 全量记账（T5）：写 cost-ledger.jsonl
+    try:
+        from cenhua_service import cost as C
+        model = L.build_env(vault).get("PI_MODEL", "")
+        tokens_in = C.estimate_tokens("")  # 占位；真实 token 由引擎返回
+        C.ledger_append(vault, {
+            "cmd": "ask", "doc": ",".join(docs)[:200], "calls": n,
+            "tokens_in": 0, "tokens_out": 0, "est_cost": 0.0,
+            "currency": "CNY", "priced": False,
+        })
+    except Exception:
+        pass
 
 
 def ask(vault, question, doc=None, all_docs=False, limit=10, workers=None,

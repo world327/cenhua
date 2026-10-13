@@ -512,7 +512,7 @@ class CenhuaTest(unittest.TestCase):
     def test_60_help_and_version(self):
         self.assertIn("grep for existence", run(["--help"], self.home).stdout.lower()
                       .replace("grep for EXISTENCE", "grep for existence"))
-        self.assertIn("cenhua 0.1.0", run(["--version"], self.home).stdout)
+        self.assertIn("cenhua 0.2.0", run(["--version"], self.home).stdout)
 
     def test_61_engine_is_untouched(self):
         """CENHUA must integrate by subprocess+env, never by editing the engine."""

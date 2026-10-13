@@ -67,6 +67,8 @@ INTAKE    add <files|dir|--inbox> · watch [--interval N] [--once]
 RETRIEVE  find <terms> [-d doc] [-i] [-r] · read <doc> [-p N] [-g re] · list
 DEEP READ ask [--doc kw | --all] "q" [--limit N] [--dry-run]   (成本护栏)
 SEMANTIC  index build|status · seek "question"     (可选向量层)
+COST      cost [--month YYYY-MM]     成本月报，按命令分组，摄取成本单列首位
+QUALITY   bench [--corpus]           质量门禁：fixture（阻断）/ 用户库（报告）
 ```
 
 ## 4. 日常使用
@@ -156,6 +158,24 @@ cenhua ask --all "总结本库要点" --dry-run   # 先看要花几次调用
 
 ```bash
 cenhua sources 违约金    # 查看原始上传与存档副本
+```
+
+### 4.5 成本与质量（M1a 起）
+
+**成本月报**：所有 LLM 调用（含摄取树索引）都记入成本台账，按命令分组汇总，
+摄取成本单列首位：
+
+```bash
+cenhua cost                 # 本月成本汇总
+cenhua cost --month 2026-10 # 指定月份
+```
+
+**质量门禁**：`cenhua bench` 跑随包分发的冻结 fixture 语料（离线、零 LLM），
+验证存在性召回 100% 与引文条目准确率 ≥95%：
+
+```bash
+cenhua bench                # fixture 阻断级门禁（发版前必跑）
+cenhua bench --corpus       # 用户库 QA（报告模式，只打印不阻断）
 ```
 
 ## 5. 库管理

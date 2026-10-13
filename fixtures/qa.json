@@ -1,0 +1,57 @@
+{
+  "_comment": "CENHUA bench fixture QA（冻结产物，随包分发）。30 题：存在性 15 + 溯源 10 + 拒答 5。存在性+溯源子集零 LLM 零网络（离线阻断）；拒答需 LLM（M2b 起进发版流水线）。引文按条目计量（F7）：每题挂多个引用点，全量条目 >=20，阈值按条目占比 >=95%。",
+  "engine_version": "0.1.0",
+  "questions": [
+    {"id": "e01", "type": "existence", "term": "违约金", "expect_doc": "contract_alpha", "expect_page": "1"},
+    {"id": "e02", "type": "existence", "term": "termination", "expect_doc": "contract_alpha", "expect_page": "1"},
+    {"id": "e03", "type": "existence", "term": "毛利", "expect_doc": "quarterly_report", "expect_page": "1"},
+    {"id": "e04", "type": "existence", "term": "13800138000", "expect_doc": "quarterly_report", "expect_page": "1"},
+    {"id": "e05", "type": "existence", "term": "6222 0200 1234 5678", "expect_doc": "contract_alpha", "expect_page": "2"},
+    {"id": "e06", "type": "existence", "term": "保密条款", "expect_doc": "nda_sample", "expect_page": "1"},
+    {"id": "e07", "type": "existence", "term": "知识产权", "expect_doc": "nda_sample", "expect_page": "2"},
+    {"id": "e08", "type": "existence", "term": "验收标准", "expect_doc": "sow_project", "expect_page": "1"},
+    {"id": "e09", "type": "existence", "term": "里程碑", "expect_doc": "sow_project", "expect_page": "2"},
+    {"id": "e10", "type": "existence", "term": "数据安全", "expect_doc": "privacy_policy", "expect_page": "1"},
+    {"id": "e11", "type": "existence", "term": "GDPR", "expect_doc": "privacy_policy", "expect_page": "2"},
+    {"id": "e12", "type": "existence", "term": "年度预算", "expect_doc": "budget_2026", "expect_page": "1"},
+    {"id": "e13", "type": "existence", "term": "研发投入", "expect_doc": "budget_2026", "expect_page": "2"},
+    {"id": "e14", "type": "existence", "term": "应急预案", "expect_doc": "risk_register", "expect_page": "1"},
+    {"id": "e15", "type": "existence", "term": "风险等级", "expect_doc": "risk_register", "expect_page": "1"},
+
+    {"id": "t01", "type": "traceability", "doc": "contract_alpha", "citations": [
+      {"page": "1", "snippet": "The penalty for early termination is 30% of the annual fee."},
+      {"page": "1", "snippet": "违约金条款见本合同第一条。"}]},
+    {"id": "t02", "type": "traceability", "doc": "contract_alpha", "citations": [
+      {"page": "2", "snippet": "Party B shall notify Party A in writing 60 days in advance."},
+      {"page": "2", "snippet": "Account 6222 0200 1234 5678 belongs to the client."}]},
+    {"id": "t03", "type": "traceability", "doc": "quarterly_report", "citations": [
+      {"page": "1", "snippet": "本季度毛利 1,240 万元，同比增长 18%。"},
+      {"page": "1", "snippet": "违约金刚性条款见合同附录二。"},
+      {"page": "1", "snippet": "联系人电话 13800138000。"}]},
+    {"id": "t04", "type": "traceability", "doc": "nda_sample", "citations": [
+      {"page": "1", "snippet": "双方对本协议内容负有保密义务。"},
+      {"page": "1", "snippet": "保密条款适用于协议存续期间及终止后三年。"},
+      {"page": "2", "snippet": "本协议项下产生的知识产权归甲方所有。"}]},
+    {"id": "t05", "type": "traceability", "doc": "sow_project", "citations": [
+      {"page": "1", "snippet": "项目验收以双方确认的验收标准为准。"},
+      {"page": "2", "snippet": "项目分为三个里程碑交付。"}]},
+    {"id": "t06", "type": "traceability", "doc": "privacy_policy", "citations": [
+      {"page": "1", "snippet": "我们承诺对用户数据进行加密存储。"},
+      {"page": "1", "snippet": "数据安全是我们的首要原则。"},
+      {"page": "2", "snippet": "本政策符合 GDPR 相关要求。"}]},
+    {"id": "t07", "type": "traceability", "doc": "budget_2026", "citations": [
+      {"page": "1", "snippet": "年度预算总额为 5,000 万元。"},
+      {"page": "2", "snippet": "研发投入占年度预算的 30%。"},
+      {"page": "2", "snippet": "市场推广费用占 20%，运营成本占 50%。"}]},
+    {"id": "t08", "type": "traceability", "doc": "risk_register", "citations": [
+      {"page": "1", "snippet": "应急预案适用于所有重大风险事件。"},
+      {"page": "1", "snippet": "风险等级分为高、中、低三级。"},
+      {"page": "2", "snippet": "高风险事件需在 24 小时内上报管理层。"}]},
+
+    {"id": "r01", "type": "refusal", "question": "语料中是否包含关于火星殖民计划的条款？", "expect": "refuse"},
+    {"id": "r02", "type": "refusal", "question": "语料中是否提到量子计算芯片的采购价格？", "expect": "refuse"},
+    {"id": "r03", "type": "refusal", "question": "语料中是否有关于时间旅行技术的描述？", "expect": "refuse"},
+    {"id": "r04", "type": "refusal", "question": "语料中是否包含外星生命接触协议？", "expect": "refuse"},
+    {"id": "r05", "type": "refusal", "question": "语料中是否提到永动机的设计方案？", "expect": "refuse"}
+  ]
+}
