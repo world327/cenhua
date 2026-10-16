@@ -187,6 +187,31 @@ CLI 层（`m_cost.py`）只做薄包装与输出，逻辑全部下沉到 service
 `refine`/`related` 进 test_71 白名单（≤10 行）；`summarize` 不是用户命令、
 不入白名单，由 test_70 管辖（F10）。
 
+### 2.17 `cenhua_service/tier.py` — 三层 artifact 判定与引文穿透（M2b）
+
+防"引文洗白"（§7.3）：LLM 回答只能引用 primary 证据源。判定优先级：
+台账 `ingest_manifest.json` 显式 `tier` 字段（在三常量内）→ 名称特征
+`DERIVED_RE`（digest/draft/周报/日报）→ 无行保守 primary。
+`penetration()` 把 derived 引文沿 `derived_from` 链穿透到 primary 原件页码；
+`record_tier()` 摄取后补写台账 tier（引擎字节级不动，test_61）。
+
+### 2.18 `cenhua_service/query.py` + `scripts/m_query.py` — 四段检索（M2b）
+
+`cenhua query` 四段输出：① 直接命中（find 精确 W_EXACT=1.0）② 总结延展
+（ask，hint 两段式 prompt + 证据段）③ 内容出处（citations + snippet 强制
+校验，F2）④ 关联推荐（related）。三路融合 find+seek+ask 按置信度排序去重。
+检索默认仅 primary 层，`--include-derived` 显式开启 derived（命中显 ⚠）。
+service 逻辑全在 query.py（禁 print）；`m_query.py` 只做打印与 rc，进
+test_71 白名单（M2b = query_cmd）。
+
+### 2.19 拒答门禁（M2b 进阻断集）
+
+`cenhua bench` 的 fixture 拒答题（type=refusal）自 v0.3.3 起进阻断集：
+正确拒答率 ≥90%。判定 = 无 citations + 拒答措辞双条件（`_refusal_verdict`）。
+无 LLM 网关时全 skipped 不阻断离线 CI（F6.2）；发版流水线必须带
+`PI_BASE`/`PI_KEY` 跑全量。非确定性治理（F6.3）：temperature=0 + 失败重试
+1 次；同一题连续 2 版 flaky 自动转人工仲裁（meta/qa/flaky.jsonl）。
+
 ## 3. 关键数据流
 
 ### 3.1 摄取（含本地 OCR）
@@ -213,7 +238,17 @@ cenhua find 违约 penalty
 
 cenhua ask --doc contract "终止罚则是什么"
   → 树导航定位相关页 → LLM 总结 → 带引文
-  → --dry-run 先估算调用数
+  → --dry-run 先估算调用数 + tokens + 金额（M2b 推广）
+
+cenhua query "违约金条款"                       (M2b, v0.3.3)
+  → 路1 find_hits 精确扫文本层（默认 primary-only）
+  → 路2 semantic_hits 语义召回（无 embedding 配置则空）
+  → fuse 置信度排序 → 命中入 refine 队列
+  → tier: 证据段仅 primary；hint 段 = refined summaries（sanitize 祈使句）
+  → 两段式 prompt → LLM → citations 逐条 verify_citation
+     （失败 → derived 穿透重验 → 仍败标 [未溯源·LLM 推断]）
+  → 第4段 related 关联推荐（M1b 关联层）
+  → 无命中 → 拒答 rc=1
 ```
 
 ## 4. 关键机制
@@ -230,8 +265,10 @@ cenhua ask --doc contract "终止罚则是什么"
 
 ### 4.3 成本护栏
 
-- `ask --dry-run` 打印调用数。
-- `max_llm_calls`（默认 8）上限，超限需 `--force`。
+- `ask/query --dry-run` 打印调用数 + tokens + 金额（M2b 起推广至全 LLM 命令：
+  ask/query/refine；digest/draft 在 M3a/M4 落地时同规格）。
+- `max_llm_calls`（默认 8）与 `CENHUA_MAX_COST_CNY`（默认 ¥2）并联，先到先停；
+  超限需 `--force`。
 - 本地 OCR 免费，降低摄取成本。
 
 ### 4.4 本地 OCR 质量校验
@@ -271,7 +308,7 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 | `PI_BASE`/`PI_KEY`/`PI_MODEL` | env | — | LLM 网关 |
 | `PI_VISION_MODEL` | env | — | 视觉兜底模型（裸 ID） |
 | `PI_EMBED_MODEL` | env | — | 向量模型 |
-| `CENHUA_MAX_COST_CNY` | env / vault.yaml `max_cost` | `2.0` | 单命令花费上限（M1a）；不适用 add/watch 与长任务/批量任务 |
+| `CENHUA_MAX_COST_CNY` | env / vault.yaml `max_cost` | `2.0` | 单命令花费上限（M1a 登记，M2b 起 ask/query 执法）；不适用 add/watch 与长任务/批量任务 |
 | `CENHUA_LONGJOB_MAX_COST_CNY` | env / vault.yaml `longjob_max_cost` | `5.0` | 长任务（digest/draft）独立预算（M1a 起登记） |
 | `CENHUA_PRICING` | env | `pricing.json` | 单价表覆盖路径（M1a） |
 | `CENHUA_REFINE_BUDGET_CNY` | env | `0`（拒绝） | refine 预算硬闸，CNY；USD 报价按保守汇率折算比较（M1b） |

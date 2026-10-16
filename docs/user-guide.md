@@ -67,6 +67,8 @@ INTAKE    add <files|dir|--inbox> · add --url <url> [--url ...] ·
           add --url-file <path> [--no-render] · watch [--interval N] [--once] [--urls]
           （.eml/.msg 邮件自动展开附件，v0.3.2 起）
 RETRIEVE  find <terms> [-d doc] [-i] [-r] · read <doc> [-p N] [-g re] · list
+QUERY     query "问题" [--include-derived] [--dry-run] [--force] [--top N]
+          四段输出：直接命中 + 总结延展 + 内容出处 + 关联推荐（v0.3.3 起）
 DEEP READ ask [--doc kw | --all] "q" [--limit N] [--dry-run]   (成本护栏)
 SEMANTIC  index build|status · seek "question"     (可选向量层)
 WEAVING   related <doc> · link <A> <B> · link --ban <E1> <E2> · hub ·
@@ -238,8 +240,32 @@ cenhua find 违约金              # 哪些文件/哪一页提到
 cenhua find 6222 -d contract    # 限定某文档
 cenhua read contract -p 12      # 核验原文第 12 页
 cenhua ask --doc contract "终止罚则是什么"
-cenhua ask --all "总结本库要点" --dry-run   # 先看要花几次调用
+cenhua ask --all "总结本库要点" --dry-run   # 先看要花几次调用（含金额预估）
 ```
+
+#### 4.4a 总结延展检索 `query`（v0.3.3 · M2b 起）
+
+把"检索 + 总结 + 关联推荐"合并成一条命令，四段输出：
+
+```bash
+cenhua query "ABC 合同的违约金条款"
+# 1. 直接命中：find 离线精确（毫秒、零 token），带 [doc P页]
+# 2. 总结延展：LLM 两段式 prompt（hint-not-evidence）；无网关时明示降级不硬编
+# 3. 内容出处：每条结论 [doc P页] + snippet 逐字引文，本地校验 ✓/✗
+# 4. 关联推荐：基于关联层（四层降噪）推荐相关文档
+```
+
+规则与习惯：
+
+- **引文强制带 snippet**：snippet 必须逐字来自该页文本层，本地校验不过的结论
+  自动标 `[未溯源·LLM 推断]`——发布前务必 `cenhua read` 人工复核。
+- **检索默认只在原件（primary）层召回**：周报/摘要类衍生文档默认不召回，
+  `--include-derived` 显式开启，命中标 `⚠derived` 且引文穿透指回原件页码。
+- **hint 只当路标不当证据**：精化过的总结以 `[HINT tier=internal]` 段进入
+  prompt 提示"去哪里看"，事实一律以原件原文为准。
+- 先看账再花钱：`--dry-run` 输出 calls + tokens + 金额；超
+  `CENHUA_MAX_COST_CNY`（默认 ¥2）拒绝启动，`--force` 放行。
+- 无命中时 query 直接拒答（rc=1）——"沉默不是证据"，拒答是正确行为。
 
 ### 4.5 溯源
 
@@ -266,6 +292,10 @@ cenhua cost --month 2026-10 # 指定月份
 cenhua bench                # fixture 阻断级门禁（发版前必跑）
 cenhua bench --corpus       # 用户库 QA（报告模式，只打印不阻断）
 ```
+
+自 v0.3.3 起门禁加入**拒答正确率 ≥90%**（fixture 拒答题需 LLM）：
+离线 CI 无网关时拒答集显示 skipped 不阻断；**发版流水线必须带
+`PI_BASE`/`PI_KEY` 跑全量**，否则 release notes 需标注"拒答门禁未验证"。
 
 ## 5. 库管理
 

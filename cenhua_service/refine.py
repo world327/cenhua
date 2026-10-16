@@ -147,9 +147,9 @@ def budget_check(estimate_result, force=False):
 
 
 # ------------------------------------------------------------ LLM 精化 ----
-def _call_llm(prompt):
+def call_llm(prompt, max_tokens=900, temperature=0.2):
     """OpenAI 兼容网关单轮调用。返回 (text, tokens_in, tokens_out)。
-    失败抛异常（调用方做失败隔离）。"""
+    失败抛异常（调用方做失败隔离）。refine/query 共用（M2b）。"""
     import os as _os
     from openai import OpenAI
     base = _os.environ.get("PI_BASE")
@@ -159,12 +159,16 @@ def _call_llm(prompt):
     resp = client.chat.completions.create(
         model=model.replace("openai/", "") if base else model,
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=900, temperature=0.2)
+        max_tokens=max_tokens, temperature=temperature)
     text = (resp.choices[0].message.content or "").strip()
     usage = getattr(resp, "usage", None)
     return (text,
             getattr(usage, "prompt_tokens", 0) or 0,
             getattr(usage, "completion_tokens", 0) or 0)
+
+
+# 兼容别名（M1b 内部调用仍走 _call_llm）
+_call_llm = call_llm
 
 
 def _parse_llm_json(text):

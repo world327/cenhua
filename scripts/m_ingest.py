@@ -181,6 +181,12 @@ def ingest_one(vault, path, quiet=False):
         save_dedupe(vault, d)
         if ocr_route:
             restore_provenance(vault, doc_id, path, name)
+        # 三层 artifact 标记（M2b 任务8）：tier 写进台账行（引擎不动，摄取层补写）
+        try:
+            from cenhua_service import tier as TG
+            TG.record_tier(vault, doc_id)
+        except Exception:
+            pass
         stage(path, vault.processed)
         # 全量记账（T5）：树索引成本=摄取固有成本，写 cost-ledger.jsonl
         try:

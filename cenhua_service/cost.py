@@ -196,7 +196,172 @@ def cost_report_lines(vault, month=None):
     return lines
 
 
-# ------------------------------------------------------------ calibration ----
+# ------------------------------------------------------------ 预估/预算闸 ----
+# CENHUA_MAX_COST_CNY（单命令花费上限，默认 2.0）：与 CENHUA_MAX_LLM_CALLS
+# 并联先到先停；不适用 add/watch（摄取无预算拒执）；不适用 digest/draft/
+# refine --drain（长任务/批量任务豁免中途执法，F1）。
+MAX_COST_ENV = "CENHUA_MAX_COST_CNY"
+
+# 保守汇率上限（闸只收紧不放松；混合货币显示时不折算）
+FX_UPPER = {"CNY": 1.0, "USD": 7.4, "EUR": 8.0, "GBP": 9.4}
+
+
+def max_cost_cny(vault=None):
+    """env > vault.yaml(max_cost) > 2.0；非法值回落 2.0。"""
+    raw = os.environ.get(MAX_COST_ENV)
+    if raw is None and vault is not None:
+        raw = (vault.cfg() or {}).get("max_cost")
+    try:
+        return float(raw) if raw not in (None, "") else 2.0
+    except ValueError:
+        return 2.0
+
+
+def estimate_prompt(prompt_text, calls=1, out_tokens=900, model=None):
+    """prompt 文本 -> 预估 dict（calls/tokens/金额），dry-run 通用。"""
+    m = model or os.environ.get("PI_MODEL", "openai/gpt-4o-mini")
+    tin = estimate_tokens(prompt_text)
+    est_cost, currency, priced, note = estimate_cost(m, tin, out_tokens)
+    return {"calls": calls, "tokens_in": tin, "tokens_out": out_tokens,
+            "model": m, "est_cost": est_cost, "currency": currency,
+            "priced": priced, "note": note}
+
+
+def estimate_docs(doc_texts, out_tokens=900, model=None):
+    """多文档深读（ask）预估：每文档一次调用，输入=正文长度。"""
+    m = model or os.environ.get("PI_MODEL", "openai/gpt-4o-mini")
+    tin = sum(estimate_tokens(t or "") for t in doc_texts)
+    tout = out_tokens * max(1, len(doc_texts))
+    est_cost, currency, priced, note = estimate_cost(m, tin, tout)
+    return {"calls": len(doc_texts), "tokens_in": tin, "tokens_out": tout,
+            "model": m, "est_cost": est_cost, "currency": currency,
+            "priced": priced, "note": note}
+
+
+def to_cny(amount, currency):
+    """按保守汇率上限折 CNY（仅用于闸门比较，不用于展示折算）。"""
+    return amount * FX_UPPER.get(currency, 7.4)
+
+
+def cost_gate(vault, est, force=False):
+    """CENHUA_MAX_COST_CNY 预算闸。返回 (ok, message)。
+
+    超出时 force 放行（仍全量记账）。
+    """
+    limit = max_cost_cny(vault)
+    cost = est.get("est_cost") or 0.0
+    cur = est.get("currency", "CNY")
+    cost_cny = to_cny(cost, cur)
+    shown = f"{cost:.4f} {cur}" + (f" ≈¥{cost_cny:.4f}" if cur != "CNY" else "")
+    if cost_cny <= limit:
+        return True, f"within budget ({shown} <= ¥{limit:g})"
+    if force:
+        return True, f"estimate {shown} exceeds ¥{limit:g}; --force overrides"
+    return False, (f"estimate {shown} exceeds ¥{limit:g} ({MAX_COST_ENV}); "
+                   f"raise it or pass --force")
+
+
+def dry_run_cost_lines(est, vault=None, gate=None, prefix="cost"):
+    """dry-run 金额预估输出行（M2b 推广至全 LLM 命令：calls+tokens+金额）。"""
+    lines = [
+        f"[{prefix}] calls     : ~{est['calls']} LLM call(s)",
+        f"[{prefix}] tokens    : ~{est['tokens_in']} in / ~{est['tokens_out']} out",
+        f"[{prefix}] gateway   : {est['model']}",
+        f"[{prefix}] estimate  : "
+        + format_cost([(est["est_cost"], est["currency"])])
+        + ("" if est["priced"] else f"  ({est['note']})"),
+        f"[{prefix}] budget    : ¥{max_cost_cny(vault):g} ({MAX_COST_ENV})",
+    ]
+    if gate is not None:
+        lines.append(f"[{prefix}] gate      : {gate}")
+    return lines
+
+
+# ------------------------------------------------------------ 预估/预算闸 ----
+# M2b 成本货币化推广：通用 estimate_prompt/estimate_docs/cost_gate/dry_run_cost_lines。
+# 预算以 CNY 计（CENHUA_MAX_COST_CNY，env > vault.yaml max_cost > 2.0 保守默认）；
+# 模型报价可能是 USD 等，按保守汇率上限折 CNY 再比（闸只收紧不放松）。
+MAX_COST_ENV = "CENHUA_MAX_COST_CNY"
+FX_UPPER = {"CNY": 1.0, "USD": 7.4, "EUR": 8.0, "GBP": 9.4}
+
+
+def max_cost_cny(vault=None):
+    """预算上限（CNY）。env > vault.yaml max_cost > 2.0 保守默认。"""
+    env = os.environ.get(MAX_COST_ENV)
+    if env:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    if vault is not None:
+        try:
+            return float(vault.cfg().get("max_cost", "2.0"))
+        except ValueError:
+            pass
+    return 2.0
+
+
+def to_cny(amount, currency):
+    """按保守汇率上限折 CNY（只收紧不放松）。"""
+    return amount * FX_UPPER.get(currency, 7.4)
+
+
+def estimate_prompt(model, prompt_text, tokens_out=1400):
+    """按 prompt 文本估价。返回
+    {"tokens_in", "tokens_out", "est_cost", "currency", "priced", "note"}。
+    """
+    tin = estimate_tokens(prompt_text)
+    est, currency, priced, note = estimate_cost(model, tin, tokens_out)
+    return {"tokens_in": tin, "tokens_out": tokens_out,
+            "est_cost": est, "currency": currency,
+            "priced": priced, "note": note}
+
+
+def estimate_docs(model, texts, tokens_out_per=1400):
+    """按文档正文列表估价（ask/query 等）。texts: list[str]。
+    返回 {"docs", "tokens_in", "tokens_out", "est_cost", "currency",
+          "priced", "note"}。
+    """
+    tin = sum(estimate_tokens(t) for t in texts)
+    tout = tokens_out_per * max(1, len(texts))
+    est, currency, priced, note = estimate_cost(model, tin, tout)
+    return {"docs": len(texts), "tokens_in": tin, "tokens_out": tout,
+            "est_cost": est, "currency": currency,
+            "priced": priced, "note": note}
+
+
+def cost_gate(vault, est, force=False):
+    """预算闸。返回 (ok, message)。est 需含 est_cost/currency。"""
+    limit = max_cost_cny(vault)
+    cost = est.get("est_cost") or 0.0
+    cur = est.get("currency", "CNY")
+    cost_cny = to_cny(cost, cur)
+    shown = f"{cost:.4f} {cur}" + (f" ≈¥{cost_cny:.4f}" if cur != "CNY" else "")
+    if cost_cny <= limit:
+        return True, f"within budget ({shown} <= ¥{limit:g})"
+    if force:
+        return True, (f"estimate {shown} exceeds budget ¥{limit:g}; "
+                      f"--force overrides")
+    return False, (f"estimate {shown} exceeds budget ¥{limit:g} "
+                   f"({MAX_COST_ENV}); raise the budget or pass --force")
+
+
+def dry_run_cost_lines(vault, est):
+    """--dry-run 金额预估报告行（供 CLI 打印；格式化在 service 层）。"""
+    lines = [
+        f"[cost] gateway    : {est.get('model', '')}",
+        f"[cost] estimate   : "
+        + format_cost([(est["est_cost"], est["currency"])])
+        + ("" if est.get("priced") else f"  ({est.get('note', '')})"),
+        f"[cost] budget     : {max_cost_cny(vault):g} CNY "
+        f"({MAX_COST_ENV}; env > vault.yaml max_cost > 2.0)",
+    ]
+    ok, msg = cost_gate(vault, est)
+    lines.append(f"[cost] gate       : {'PASS' if ok else 'REFUSE'} — {msg}")
+    return lines
+
+
+# ------------------------------------------------------- calibration ----
 def calibrate(vault, actual_cost, est_cost, model=""):
     """预估校准闭环：预估偏差 >3x 告警，防单价表过期。
 

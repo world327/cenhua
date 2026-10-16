@@ -31,6 +31,11 @@
 > - 2026-10 五轮（版本排期微调）：M1b 实际交付晚于 M2a(v0.3.0)，**M1b 版本号
 >   v0.2.1 → v0.3.2、M2b v0.3.1 → v0.3.3**（保持发布号单调递增，主人拍板）；
 >   M3a 起里程碑版本号不变。
+> - 2026-10-16 交付状态：**M1b v0.3.2 与 M2b v0.3.3 均已交付**——M2b 落地
+>   `cenhua query` 四段输出、★ 两段式 hint-not-evidence prompt 首发（sanitize
+>   祈使句防注入）、三层 artifact（台账 `tier` 字段 + derived_from 引文穿透）、
+>   citations snippet 强制校验、dry-run 金额预估推广（ask/query/refine）、
+>   拒答门禁 ≥90% 进阻断集（无 key 跳过路径 F6.2）；test_71 白名单 +query。
 
 ---
 
@@ -660,7 +665,7 @@ OpenClaw 技能包；离线文档摄取闭环（多格式 + 本地 OCR + 去重�
 
 **依赖**：M0。
 
-### M1b · v0.3.2 · 编织（🚧 规划）
+### M1b · v0.3.2 · 编织（✅ 已交付）
 
 **交付物**（T3 拆分；复用 M1a 换算函数与 verify_citation 两处；F5 唯一归属 §4.4）：
 - §4.4 离线增强（**唯一归属**——邮件 `eml`/`msg` + watch 强化；F5；M2a 不再重复此行）
@@ -700,7 +705,7 @@ OpenClaw 技能包；离线文档摄取闭环（多格式 + 本地 OCR + 去重�
 
 **依赖**：M0（★不依赖 M1，可与 M1 并行开发；语料贡献是增益不是前置）。
 
-### M2b · v0.3.3 · 延展检索 + 成本货币化推广 + 拒答门禁 + ★ hint 两段式 prompt 首发（📋 规划）
+### M2b · v0.3.3 · 延展检索 + 成本货币化推广 + 拒答门禁 + ★ hint 两段式 prompt 首发（✅ 已交付）
 
 **交付物**：
 - §6.3 总结延展检索 `cenhua query` 四段输出
@@ -1185,10 +1190,10 @@ GET  /api/v1/graph            # (v0.6 起，随 M4 交付；v0.5 返回 404 + �
 | 优先级 | 里程碑 | 主要交付 | 形态 |
 |---|---|---|---|
 | ✅ 已成 | M0 v0.1.0 | CLI + 技能 + 离线检索 + 护栏 | A + B |
-| 🚧 高 | M1a v0.2.0 | 成本与质量基础设施（pricing+currency + 换算 + ledger 全量记账 + cost + 校准 + bench fixture 冻结产物 + verify_citation 三参 snippet + service-contract 建档直接采用升级后契约） | A + B |
-| 🚧 高 | M1b v0.3.2 | 编织（deferred 总结 + refine hint 待 M2b + 四层降噪+小库模式 + §4.4 唯一归属 + related/refine/cost/bench 入 service；summarize 由 test_70 管辖） | A + B |
-| 🚧 高（并行）| M2a v0.3.0 | 网页收录（Playwright 默认装 + WSL2 系统库对策 + doctor 启动自检；**不含 §4.4**） | A + B |
-| 🚧 高 | M2b v0.3.3 | `query` 延展检索 + ★ hint 两段式 prompt 首发 + cost 推广全命令 + 拒答门禁（跑 fixture，分层+flaky 治理）+ 三层 artifact | A + B |
+| ✅ 已成 | M1a v0.2.0 | 成本与质量基础设施（pricing+currency + 换算 + ledger 全量记账 + cost + 校准 + bench fixture 冻结产物 + verify_citation 三参 snippet + service-contract 建档直接采用升级后契约） | A + B |
+| ✅ 已成 | M1b v0.3.2 | 编织（deferred 总结 + refine hint 待 M2b + 四层降噪+小库模式 + §4.4 唯一归属 + related/refine/cost/bench 入 service；summarize 由 test_70 管辖） | A + B |
+| ✅ 已成 | M2a v0.3.0 | 网页收录（Playwright 默认装 + WSL2 系统库对策 + doctor 启动自检；**不含 §4.4**） | A + B |
+| ✅ 已成 | M2b v0.3.3 | `query` 延展检索 + ★ hint 两段式 prompt 首发 + cost 推广全命令 + 拒答门禁（跑 fixture，分层+flaky 治理）+ 三层 artifact | A + B |
 | 📋 重大 | M3a v0.4.0 | service 层完成 + digest（all-or-nothing+豁免中途执法）+ 任务通道（**持久化边界开工前必拍板**）+ hint 注入对抗硬化 + 三层 artifact 闭环（CLI-only） | A + B |
 | 📋 重大 | M3b v0.5.0 | 本地 Web UI（**洞察浏览，草稿编辑移 M4**）+ 局域网 API（单 token，清除租户残肢）+ SSE 薄适配 | **C** + 局域网 API |
 | 📋 高 | M4 v0.6.0 | 知识图谱 + 主题创作 draft（all-or-nothing + 独立预算 + 豁免中途执法 + draft --verify 包装升级后 verify_citation）+ ★ Web 草稿编辑三件套（从 M3b 移入） | A + B + C |

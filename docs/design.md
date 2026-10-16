@@ -71,6 +71,31 @@ API 密钥只存在于环境变量或用户显式选择的网关引用中。`vau
 - **单价表** `pricing.json`（随包分发，可覆盖）：model → {in, out, currency}；
   OpenClaw 全名匹配规则（F9）：全名 → 裸 id → 保守默认价；混合货币不强行折算。
 
+### 2.7 原则 11：hint-not-evidence（v0.3.3 · M2b 起生效，F2+F3）
+
+三层 artifact（防引文洗白）：**primary**（原件，唯一证据来源）/
+**derived-doc**（digest/draft/周报：默认检索降级，`--include-derived` 显式开启，
+引文必须沿 `derived_from` 穿透直达 primary 原件页码）/
+**internal-artifact**（summaries 总结/NER：正文永不进引文）。
+
+prompt 两段式（`cenhua_service/prompt.py` 装配）：
+
+- **hint 段**：refined summaries，标 `[HINT tier=internal]`，只回答"去哪里看"；
+  **只许陈述、不许祈使**——装配时逐句消毒（中文祈使特征 + 英文
+  prompt-injection 形态命中即整句剔除），首发即硬规则化，M3a 增量为注入对抗
+  硬化（fixture 对抗题），不是机制首发。
+- **证据段**：仅 primary 文本层，标 `[EVIDENCE tier=primary]`，回答"是什么"；
+  禁止引用 internal-artifact / derived-doc 正文作为事实证据。
+- **snippet 强制**（F2）：citations schema 强制 `{doc, page, snippet}`，
+  snippet 必须逐字摘录该页原文；无 snippet / 归一化校验
+  （`verify_citation` 三参原语）失败 → 该结论按 `[未溯源·LLM 推断]` 降级，
+  门禁计为失败。
+- **基于 hint 的结论必须回到 primary 正文重新验证后引用**；证据段不足以
+  回答时如实拒答（沉默不是证据，编造更不是）。
+- **执法豁免边界**：两段式管辖 ask/query/digest/draft 的 prompt 组装；
+  `refine` 自身的精化 prompt 不在管辖内（其输入本就是 internal-artifact
+  的规则层粗提取，产出的 refined 字段才是 hint 原料）。
+
 ## 3. 范围
 
 ### P0–P2（当前版本 0.1.0，最小可用）

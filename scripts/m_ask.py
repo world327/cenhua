@@ -17,7 +17,8 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))            # scripts/
+sys.path.insert(1, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # ROOT(cenhua_service/)
 import m_lib as L  # noqa: E402
 
 
@@ -86,11 +87,28 @@ def ask(vault, question, doc=None, all_docs=False, limit=10, workers=None,
         L.say(f"[cost] note       : {len(stale)} target(s) lack a text layer — "
               f"deep read still works (it uses the tree index)")
     L.say(f"[cost] cheaper    : cenhua find <terms> first; grep for existence, "
-          f"LLM for meaning")
+              f"LLM for meaning")
+
+    # M2b 任务7：dry-run 金额预估推广（calls + tokens + 金额，复用 M1a 换算）
+    from cenhua_service import cost as CC
+    texts = []
+    for d, _ in targets:
+        p = os.path.join(vault.textdir, f"{d}.txt")
+        try:
+            texts.append(open(p, encoding="utf-8", errors="ignore").read())
+        except OSError:
+            texts.append("x" * 6400)       # 无文本层按 4K tokens 保守估
+    model = env.get("PI_MODEL", "openai/gpt-4o-mini")
+    est = CC.estimate_docs(model, texts)
+    ok, gate = CC.cost_gate(vault, est, force=force)
+    for line in CC.dry_run_cost_lines(vault, est):
+        L.say(line)
 
     if dry_run:
         L.say("\n(dry run — nothing was sent)")
         return 0
+    if not ok:
+        L.die(f"refusing: {gate}", code=4)
     if n > cap and not force:
         L.die(f"refusing: {n} calls exceeds the per-run ceiling {cap}. "
               f"Narrow with --doc, lower --limit, or pass --force.", code=4)

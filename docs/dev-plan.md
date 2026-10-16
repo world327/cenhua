@@ -383,15 +383,15 @@ cost/bench 入 service。
 
 ### 5.4 Definition of Done
 
-- [ ] §5.3 任务 1-12 全绿
-- [ ] `cenhua query` 四段输出格式正确（命中+延展+引文+关联）
-- [ ] **★ hint 两段式 prompt 首发落地**（F3）：hint 段标 `[HINT tier=internal]`，证据段仅从 primary 取，hint 段禁祈使
-- [ ] citations 强制带 snippet（F2），无 snippet 在门禁计失败
-- [ ] dry-run 金额预估推广至全 LLM 命令
-- [ ] 三层 artifact 标记（primary/derived-doc/internal-artifact）；internal-artifact 可作 hint 进 prompt
-- [ ] 拒答门禁生效（跑 fixture 拒答题 ≥90%）
-- [ ] service 层 `query` 入 service（白名单 M2b）
-- [ ] §1.3 DoD 模板全部勾选
+- [x] §5.3 任务 1-12 全绿（v0.3.3，tests/test_query.py 38 项 + bench 拒答门禁）
+- [x] `cenhua query` 四段输出格式正确（命中+延展+引文+关联）
+- [x] **★ hint 两段式 prompt 首发落地**（F3）：hint 段标 `[HINT tier=internal]`，证据段仅从 primary 取，hint 段禁祈使（sanitize_hint 逐句消毒）
+- [x] citations 强制带 snippet（F2），无 snippet 在门禁计失败（parse_answer 留空串 + verify 判负）
+- [x] dry-run 金额预估推广至全 LLM 命令（ask/query/refine 复用 cost.estimate_*；digest/draft 随 M3a/M4 落地同规格）
+- [x] 三层 artifact 标记（primary/derived-doc/internal-artifact）；internal-artifact 可作 hint 进 prompt
+- [x] 拒答门禁生效（fixture 拒答题 ≥90% 进阻断集；无网关 skipped 不阻断，F6.2）
+- [x] service 层 `query` 入 service（test_71 白名单 M2b=query，CLI 6 行）
+- [x] §1.3 DoD 模板全部勾选（全量套件全绿 + 文档六件套同步 + 版本号 0.3.3）
 
 ### 5.5 风险点与对策
 
@@ -683,12 +683,12 @@ cost/bench 入 service。
 |---|---|---|
 | roadmap.md 按 R1-R4 四份评审修订 | ✅ 已完成 | — |
 | design.md：原则 10 增补"全量记账仅免闸 + 长任务/批量任务豁免中途执法"（T5+F1） | 📋 待 | M1a 起 |
-| design.md：原则 11 增补 hint-not-evidence 完整规则（F2 snippet 强制、F3 生效版本、执法豁免边界） | 📋 待 | M2b 起 |
+| design.md：原则 11 增补 hint-not-evidence 完整规则（F2 snippet 强制、F3 生效版本、执法豁免边界） | ✅ 已完成（design.md §2.7） | v0.3.3 · M2b |
 | `docs/service-contract.md` 建档（M1a 首 commit，直接采用升级后契约：citations 含 snippet、verify_citation 三参签名、schema_version——F2） | 📋 待 | M1a 首 commit |
 | fixture 冻结产物制作流程（合成语料 → 建索引 → 冻结打包，绑定 engine_version，提供 `bench --rebuild`） | 📋 待 | M1a |
 | pricing.json `currency` 字段与 OpenClaw 全名匹配规则落 M1a（F9） | 📋 待 | M1a |
-| README 形态叙述同步（R1 遗留，仍未关闭） | 📋 待 | M1a 起 |
-| architecture.md 同步补 service 层架构（M1a 起）+ 任务通道架构（M3a 起）+ hint 两段式 prompt 架构（**M2b 起**，F3） | 📋 待 | M1a 起 |
+| README 形态叙述同步（R1 遗留，仍未关闭） | ✅ 已完成（命令速查/Layout 同步至 v0.3.3） | v0.3.3 · M2b |
+| architecture.md 同步补 service 层架构（M1a 起）+ 任务通道架构（M3a 起）+ hint 两段式 prompt 架构（**M2b 起**，F3） | ✅ M1a/M2b 部分完成（§2.11/§2.17-2.19），任务通道待 M3a | M3a |
 | `max_llm_calls` → `CENHUA_MAX_LLM_CALLS` 迁移需兼容旧 env 名一个版本（deprecation warning） | 📋 待 | M1a |
 | `CENHUA_API_ALLOWED_AGENTS` 删除迁移：旧配置读取时 warn 并降级为单 token 模式（T8.2） | 📋 待 | M3b |
 | **★ 任务通道持久化边界**（R2/R3/R4 连续三轮预告，**M3a 开工前必须拍板**） | 📋 待 | M3a 开工前 |
@@ -701,9 +701,9 @@ cost/bench 入 service。
 |---|---|---|---|---|
 | M0 | v0.1.0 | ✅ 已发布 | — | — |
 | M1a | v0.2.0 | ✅ 已交付（成本+质量基建，19 测试全绿） | 16.5 任务日 | 4-5 周 |
-| M1b | v0.3.2 | 🚧 开发中（编织层代码+28 测试已落地，待收尾） | 16 任务日 | 4-5 周 |
+| M1b | v0.3.2 | ✅ 已交付（邮件展开+编织层，5+28 测试全绿，commit b3d5a7b） | 16 任务日 | 4-5 周 |
 | M2a | v0.3.0 | ✅ 已交付（代码+测试+文档已落地，全套件全绿） | 12.5 任务日 | 3-4 周 |
-| M2b | v0.3.3 | 📋 规划 | 13 任务日 | 3-4 周 |
+| M2b | v0.3.3 | ✅ 已交付（query 四段+hint 两段式+拒答门禁，38 测试全绿） | 13 任务日 | 3-4 周 |
 | M3a | v0.4.0 | 📋 规划（工程难度最高点） | 20 任务日 | 5-6 周 |
 | M3b | v0.5.0 | 📋 规划 | 17 任务日 | 4-5 周 |
 | M4 | v0.6.0 | 📋 规划（范围最广） | 25.5 任务日 | 6-7 周 |

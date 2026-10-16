@@ -146,6 +146,52 @@ class CostEstimate:
 | `relations.related` / `related_lines` | `(vault, doc_id[, name])` | 权重降序 + 证据；空结果明示；命中入精化队列 |
 | `relations.manual_link` / `add_ban` | 见源码 | 人工边 0.8 / 黑名单永久压制 |
 
+### 3.4 M2b 新增模块与函数（延展检索层，登记制先行）
+
+`cenhua_service/tier.py`（三层 artifact + 引文穿透；tier 集中一处生成）：
+
+```python
+# 摄取台账 ingest_manifest.json 每行新增可选字段（读侧容忍缺失）：
+#   "tier": "primary" | "derived-doc" | "internal-artifact"   # record_tier 补写
+#   "derived_from": [doc_id, ...]                             # M3a digest 生成时写入
+```
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `tier.classify` | `(name, stored_as="") -> str` | 名称特征判 tier（`DERIVED_RE`） |
+| `tier.doc_tier` | `(vault, doc_id) -> str` | 台账显式 tier > 名称判定 > 无行保守 primary |
+| `tier.record_tier` | `(vault, doc_id) -> str` | 摄取成功后把 tier 补写台账（tmp+原子 rename；引擎不动） |
+| `tier.derived_from` | `(vault, doc_id) -> [primary_id]` | 穿透链：优先台账字段，退关系层；防环 |
+| `tier.penetration` | `(vault, doc_id, page) -> [{"doc","page"}]` | 引文位置 -> primary 位置；internal 恒 [] |
+
+`cenhua_service/prompt.py`（★ 两段式 hint-not-evidence，F3 自 v0.3.3 生效）：
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `prompt.sanitize_hint` | `(text) -> (clean, n_dropped)` | 祈使/注入句逐句剔除（只许陈述；英文 .!? 后跟空白才切句，防 "128.5万" 切碎） |
+| `prompt.hint_block` | `(vault, doc_ids) -> (lines, meta)` | 仅 refined；`[HINT tier=internal]` 标记；无 hint 明示不沉默 |
+| `prompt.evidence_block` | `(segments) -> lines` | `[EVIDENCE tier=primary]`；调用方保证只传 primary |
+| `prompt.build_prompt` | `(question, hint_lines, evidence_lines) -> str` | hint 前证据后；协议指令含 snippet 逐字强制 |
+| `prompt.parse_answer` | `(text) -> dict\|None` | `{answer, citations[{doc,page,snippet}]}`；缺 snippet 留空串由 verify 计失败（F2） |
+
+`cenhua_service/query.py`（四段编排，零 print；CLI 白名单 M2b=`query`）：
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `query.terms_from_question` | `(q) -> [term]` | CJK ≤4 字整串 / 长串 2-gram + 拉丁词 + 停用词 |
+| `query.find_hits` | `(vault, terms, include_derived=False)` | 默认 primary-only（§7.3 降级）；derived 带 derived_from |
+| `query.fuse` | `(find_hits, seek_hits) -> ranked` | W_EXACT=1.0 / W_SEMANTIC=0.6，doc 去重降序 |
+| `query.verify_citations` | `(vault, citations) -> [rec]` | verify_citation 原文校验 → 失败穿透重验 → 仍败降级标注 |
+| `query.query_flow` | `(vault, q, ...) -> (rc, lines)` | 四段输出；无命中拒答 rc=1；预算闸拒绝 rc=4 |
+
+`cenhua_service/cost.py` M2b 增量（dry-run 金额推广，全 LLM 命令共用）：
+`estimate_prompt` / `estimate_docs` / `cost_gate`（`CENHUA_MAX_COST_CNY` env >
+vault.yaml `max_cost` > 2.0；保守汇率折算只收紧）/ `dry_run_cost_lines`。
+
+`cenhua_service/bench.py` M2b 增量：`run_refusal`（拒答门禁 ≥90% 进阻断集；
+无网关 skipped 不阻断，F6.2；temperature=0+重试 1 次，F6.3）；
+`_refusal_verdict`（无引文 + 拒答措辞 = refuse）。
+
 ---
 
 ## 4. `schema_version` 演进记录

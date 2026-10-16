@@ -53,6 +53,10 @@ INTAKE
 
 RETRIEVAL
   find <term>... [-d kw] [-i] [-r]  exact text-layer grep, page numbers   [OFFLINE]
+  query "question" [--include-derived] [--dry-run] [--force]
+        4-in-1: exact hits + LLM synthesis (two-part hint-not-evidence
+        prompt) + citations with snippets + related docs. Default recall is
+        primary-only; --include-derived adds derived-doc layer (marked ⚠).
   read <doc> [-p N] [-g regex]      print raw pages for verification      [OFFLINE]
   list                              documents in the vault                [OFFLINE]
   flatten [--force]                 rebuild the text layer                [OFFLINE]
@@ -60,6 +64,9 @@ RETRIEVAL
                                     tree-navigation deep read (LLM; cost guard)
   index [build|status]              optional semantic (embedding) layer
   seek "question" [--top N]         semantic recall — a net, not the answer
+  query "question" [--include-derived] [--dry-run] [--force] [--top N]
+                                    four-section answer: hits + LLM extension
+                                    + verified citations + related (M2b)
 
 COST & QUALITY
   cost [--month YYYY-MM]            cost ledger summary, grouped by command
@@ -380,6 +387,9 @@ def main():
         return m_search.find(v, a.terms, docs_selector=a.doc,
                              ignore_case=a.ignore_case, regex=a.regex,
                              max_per_doc=a.max)
+    if cmd == "query":
+        import m_query
+        return m_query.query_cmd(v, rest)
     if cmd == "read":
         import m_search
         if not pos:

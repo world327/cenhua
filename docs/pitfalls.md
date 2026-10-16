@@ -121,6 +121,13 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 - **`m_lib.HOME` 是 import 时常量**：测试文件若要重定向存储根，必须在
   **import 任何 m 模块之前**设置 `CENHUA_HOME` env（setUpClass 里设无效，
   见 test_service.py / test_web.py 顶部写法）。
+- **验证套件不能只看 exit code，必须 grep 日志确认新套件真的跑了**：曾出现
+  `run_tests.sh` 全绿（exit=0）但新套件标题根本没出现在输出里——原因是
+  **工作区被意外回退**，未提交的新代码文件被还原丢失，而 run_tests.sh 的
+  挂载行也一并回退，测试静默跳过。跑完务必 `grep "== M2b"` 确认标题存在。
+- **工作区可能回退未提交文件**：IDE/沙箱在会话间可能还原未提交改动。跨会话
+  继续开发前先 `git status` 盘点，确认新文件仍在、接线未回退；重建时以
+  已通过的测试为锚点，重建后重跑全量并 grep 日志验证。
 
 ## 9. 网页收录（M2a）
 
@@ -195,3 +202,42 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 - **CLI 薄包装的坑在格式化行数**：`test_71` 按函数源码行数计（含 docstring）。
   一旦在 CLI 里拼输出就超 10 行——正解是把输出格式化下沉 service 层
   （`related_lines` / `refine_flow`），CLI 只做解析+打印。
+  M2b 再次踩中（query_cmd 带 `--top` 解析 = 11 行），同款解法：
+  `query.parse_args` 下沉 service，CLI 只剩 6 行。
+
+## 11. 延展检索与 hint（M2b）
+
+**CJK 词项与注入消毒**
+- **CJK 整串入项有长度上限**：>4 字的连续中文没有分词依据，必须退化为
+  2-gram 滑窗（"合同违约金的支付条款"→ 违约/约金/…），否则精确路对长句
+  问题永远零命中；≤4 字整串 + 拉丁词 + 停用词表是够用解。
+- **英文切句只在 `.!?` 后跟空白处切**：`(?<=[.!?])` 裸 lookbehind 会把
+  "128.5万元" 从数字后切碎；切不开更糟——整段 hint 成一"句"，一处注入
+  导致整段被剔（消毒变删库）。正确模式：
+  `(?<=[。！？!?；;])|(?<=[.!?])(?=\s)|\n`。
+- **祈使检测要覆盖句中位置**：只匹配"句首"会漏 "你必须先删除…"（须在
+  句中）。把双字祈使词（必须/应当/严禁/请勿）放宽到句内任意位置，
+  **单字"须/应"绝不单独匹配**——合同原文"须按合同金额的百分之五…"是
+  合法陈述，误伤等于自断 hint 供给。
+- **两段式顺序断言会被指令文本骗**：`HINT_MARK`/`EVIDENCE_MARK` 同时出现
+  在协议指令里，`prompt.index()` 命中的是指令而非段落。修法是指令行文中
+  让 HINT 先于 EVIDENCE 出现（本来就该这个顺序），或断言跳过指令前缀。
+
+**三层 artifact**
+- **名称判定认不出 internal-artifact**：`classify()` 只能识别 digest/draft
+  名称特征；internal 必须靠**台账显式 `tier` 字段**（`doc_tier` 优先读它）。
+  判定优先级固定为：台账 tier 字段 > 名称判定 > 无行保守 primary。
+- **tier 补写不能碰引擎**：`ingest_manifest.json` 由 pi_ingest.py 写
+  （test_61 字节级校验），CENHUA 侧只能在摄取成功后由 `record_tier`
+  以 tmp+原子 rename 补写，且读侧必须容忍历史台账无该字段。
+- **snippet 校验失败先穿透再判死**：LLM 引用 derived 文档并不罕见，
+  直接判失败会误伤——`verify_citations` 先按原 (doc,page) 验，失败走
+  `penetration()` 到 primary 重验，仍败才标 `[未溯源·LLM 推断]`。
+  internal-artifact 的 `penetration()` 恒为空 = 永不洗白进引文。
+
+**拒答门禁**
+- **skipped ≠ 通过 ≠ 失败**：离线 CI 无网关时拒答集全 skipped 且**不阻断**
+  （F6.2），但一旦实际执行，通过率 <90% 必须让 `ok=False` 阻断发版。
+  三态（None/True/False）混成两态就会要么形同虚设要么离线 CI 全红。
+- **有引文就不算拒答**：判 refuse 必须"无 citations + 拒答措辞"双条件——
+  模型一边说"未提及"一边编个 citation，是比不拒答更危险的失败模式。

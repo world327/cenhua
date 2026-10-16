@@ -93,6 +93,174 @@ def _existence_hit(doc, term):
     return False, None
 
 
+def refusal_fixture_evidence():
+    """拒答题的证据段 = 全部 fixture 文本层（截断，够判断'有没有'）。"""
+    segs = []
+    try:
+        fns = sorted(os.listdir(fixture_text_dir()))
+    except OSError:
+        return []
+    for fn in fns:
+        if not fn.endswith(".txt"):
+            continue
+        doc = fn[:-4]
+        pages = _fixture_text(doc)
+        head = "\n".join(t for _, t in pages[:2])[:1500]
+        segs.append({"doc": doc, "name": doc, "page": str(pages[0][0])
+                     if pages else "?", "text": head})
+    return segs
+
+
+# 拒答成功的语言特征（模型如实说"语料里没有"）
+_REFUSE_RE = re.compile(
+    r"(无法回答|不能回答|无从回答|未提及|未包含|没有提及|没有找到|找不到|"
+    r"未涉及|不足以回答|does not (?:mention|contain)|no (?:mention|information)|"
+    r"cannot answer|not (?:found|mentioned|present))", re.I)
+
+
+def _refusal_verdict(answer, citations):
+    """判定模型回答是"拒答"还是"作答"。无引文 + 拒答措辞 -> refuse。"""
+    if citations:
+        return "answer"
+    return "refuse" if _REFUSE_RE.search(answer or "") else "answer"
+
+
+def run_refusal(refusal_qs):
+    """跑 fixture 拒答题（M2b 门禁）。无网关 -> 全部 skipped（F6.2）。
+
+    非确定性治理（F6.3）：temperature=0 + 失败重试 1 次。
+    """
+    from cenhua_service import prompt as P
+    from cenhua_service import refine as R
+    if not refusal_qs:
+        return []
+    env = L.build_env(None)
+    if not L.chat_ready(env):
+        return [{"id": q["id"], "question": q["question"],
+                 "expect": q["expect"], "ok": None, "skipped": True}
+                for q in refusal_qs]
+    segs = refusal_fixture_evidence()
+    items = []
+    for q in refusal_qs:
+        pr = P.build_prompt(q["question"],
+                            [f"{P.HINT_MARK} (无 hint)"], P.evidence_block(segs))
+        verdict, done = "answer", False
+        for _attempt in range(2):                    # 重试 1 次（F6.3）
+            try:
+                raw, _tin, _tout = R.call_llm(pr, max_tokens=600,
+                                              temperature=0)
+            except Exception:
+                break                                # 网关挂了：本条 aborted
+            parsed = P.parse_answer(raw)
+            if parsed:
+                verdict = _refusal_verdict(parsed["answer"],
+                                           parsed["citations"])
+                done = True
+                break
+        ok = (verdict == q["expect"]) if done else None
+        items.append({"id": q["id"], "question": q["question"],
+                      "expect": q["expect"], "got": verdict, "ok": ok,
+                      "skipped": not done})
+    return items
+
+
+# ------------------------------------------------------------ 拒答门禁 ----
+# M2b 起进阻断集（F6.2）：fixture 拒答题 >=90% 通过；无网关全 skipped 不阻断。
+# 非确定性治理（F6.3）：temperature=0 + 失败重试 1 次。
+_REFUSE_RE = re.compile(
+    r"(?:无法|不能|没有|未找到|不包含|不存在|超出|拒绝|无法回答|"
+    r"语料中|资料中|文档中|未提及|未涉及|无法提供|无法确认|无法给出)"
+    r".{0,20}(?:信息|内容|资料|答案|依据|证据|相关|条款|描述|记录|数据|"
+    r"方案|技术|协议|计划|价格|设计|细节|情况|事实|说明|回答|支持|佐证)",
+    re.S)
+
+
+def _refusal_verdict(answer, citations):
+    """判定一次拒答是否"正确拒答"。
+
+    返回 True（正确拒答）/ False（未拒答但应拒）/ None（无法判定）。
+    判定 = 无 citations + 拒答措辞双条件（防"有引文却拒答"的矛盾）。
+    """
+    if not answer:
+        return None
+    has_cites = bool(citations)
+    refuse_wording = bool(_REFUSE_RE.search(answer))
+    if not has_cites and refuse_wording:
+        return True
+    if has_cites:
+        return False
+    return None
+
+
+def _refusal_pass(items):
+    """拒答通过判定：>=90% 正确拒答（有判定项）。"""
+    judged = [i for i in items if i.get("ok") is not None]
+    if not judged:
+        return None
+    return sum(1 for i in judged if i["ok"]) / len(judged) >= 0.90
+
+
+def refusal_fixture_evidence():
+    """fixture 拒答题 -> 证据段（离线，供 LLM 判断是否应拒答）。"""
+    questions, _ = load_qa()
+    refusal = [q for q in questions if q.get("type") == "refusal"]
+    out = []
+    for q in refusal:
+        # 用 fixture 全部文本层作为"语料"证据（离线）
+        evidence = []
+        for doc_id in sorted(os.listdir(fixture_text_dir())):
+            if doc_id.endswith(".txt"):
+                evidence.append(f"[{doc_id[:-4]}] "
+                                + " ".join(t for _, t in _fixture_text(doc_id[:-4])))
+        out.append({"id": q["id"], "question": q["question"],
+                    "expect": q["expect"], "evidence": "\n".join(evidence)})
+    return out
+
+
+def run_refusal(refusal_qs):
+    """跑拒答门禁（需 LLM）。无网关 -> 全 skipped（F6.2 不阻断）。
+
+    refusal_qs: fixture 拒答题列表。返回
+    {"total", "pass", "fail", "skipped", "items"}。
+    """
+    if not refusal_qs:
+        return {"total": 0, "pass": 0, "fail": 0, "skipped": 0, "items": []}
+    if not L.chat_ready(L.build_env(None)):
+        return {"total": len(refusal_qs), "pass": 0, "fail": 0,
+                "skipped": len(refusal_qs),
+                "items": [{"id": q["id"], "question": q["question"],
+                           "expect": q["expect"], "ok": None, "skipped": True}
+                          for q in refusal_qs]}
+    from cenhua_service import refine as R
+    from cenhua_service import prompt as P
+    items = []
+    for q in refusal_qs:
+        prompt = (P._INSTRUCTION
+                  + f"\n问题：{q['question']}\n"
+                  + "若语料中无相关信息，请拒答（answer 说明无法回答，"
+                    "citations 留空）。\n")
+        ok = None
+        for attempt in range(2):          # F6.3：temperature=0 + 重试 1 次
+            try:
+                raw, _, _ = R.call_llm(prompt, max_tokens=300, temperature=0)
+            except Exception:
+                raw = ""
+            parsed = P.parse_answer(raw)
+            if parsed is None:
+                continue
+            verdict = _refusal_verdict(parsed["answer"], parsed["citations"])
+            if verdict is not None:
+                ok = verdict
+                break
+        items.append({"id": q["id"], "question": q["question"],
+                      "expect": q["expect"], "ok": ok, "skipped": ok is None})
+    return {"total": len(items),
+            "pass": sum(1 for i in items if i["ok"] is True),
+            "fail": sum(1 for i in items if i["ok"] is False),
+            "skipped": sum(1 for i in items if i["ok"] is None),
+            "items": items}
+
+
 def run_fixture():
     """跑 fixture 阻断级门禁（存在性 + 溯源，离线零 LLM）。
 
@@ -136,15 +304,19 @@ def run_fixture():
                 "snippet": c["snippet"], "ok": ok,
             })
 
-    # ---- refusal: 需 LLM，M2b 起进阻断集；此处标记 skipped（离线） ----
-    ref_items = [{"id": q["id"], "question": q["question"],
-                  "expect": q["expect"], "ok": None, "skipped": True}
-                 for q in refusal]
+    # ---- refusal: M2b 起进阻断集；无 LLM 网关 -> skipped（F6.2 跳过路径） ----
+    ref_items = run_refusal(refusal)["items"]
+    refused = all(i.get("skipped") for i in ref_items) if ref_items else True
 
     ex_total = len(existence)
     tr_total = len(tr_items)
     ex_ok = ex_total > 0 and ex_pass == ex_total
     tr_ok = tr_total >= 20 and (tr_pass / tr_total) >= 0.95
+    # 拒答 >=90%（仅当实际执行时参与阻断；skipped 不阻断离线 CI，F6.2）
+    ref_done = [i for i in ref_items if not i.get("skipped")]
+    ref_pass = sum(1 for i in ref_done if i["ok"])
+    ref_ok = (not ref_done) or (len(ref_done) > 0
+                                and ref_pass / len(ref_done) >= 0.90)
 
     return {
         "engine_version": engine_version,
@@ -152,9 +324,11 @@ def run_fixture():
                       "ok": ex_ok},
         "traceability": {"total_entries": tr_total, "pass_entries": tr_pass,
                          "items": tr_items, "ok": tr_ok},
-        "refusal": {"total": len(refusal), "pass": 0, "skipped": len(refusal),
-                    "items": ref_items, "ok": None},
-        "ok": ex_ok and tr_ok,
+        "refusal": {"total": len(refusal), "pass": ref_pass,
+                    "skipped": len(refusal) - len(ref_done),
+                    "items": ref_items,
+                    "ok": None if refused else ref_ok},
+        "ok": ex_ok and tr_ok and ref_ok,
     }
 
 
@@ -233,8 +407,20 @@ def bench_report_lines(vault, corpus=False):
                  f"{'PASS' if ex['ok'] else 'FAIL'}  (100% required)")
     lines.append(f"  traceability: {tr['pass_entries']}/{tr['total_entries']} "
                  f"entries  {'PASS' if tr['ok'] else 'FAIL'}  (>=95%, n>=20)")
-    lines.append(f"  refusal     : {ref['skipped']}/{ref['total']} skipped "
-                 f"(needs LLM, M2b+; offline CI skips)")
+    if ref["skipped"] and ref["skipped"] == ref["total"]:
+        lines.append(f"  refusal     : {ref['total']} skipped "
+                     f"(LLM gateway not configured — release pipeline must "
+                     f"run with PI_BASE/PI_KEY, F6.2)")
+    else:
+        done = ref["total"] - ref["skipped"]
+        rate = f"{ref['pass']}/{done}" if done else "0/0"
+        lines.append(f"  refusal     : {rate}  "
+                     f"{'PASS' if ref.get('ok') else 'FAIL'}  (>=90% required)")
+        for it in ref["items"]:
+            if it.get("ok") is False:
+                lines.append(f"    FAIL refusal {it['id']}: "
+                             f"question={it['question'][:40]} "
+                             f"got={it.get('got')} expect={it['expect']}")
     if not ex["ok"]:
         for it in ex["items"]:
             if not it["ok"]:
