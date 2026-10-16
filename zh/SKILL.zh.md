@@ -16,7 +16,8 @@
 | 用户想做什么 | 命令 | 代价 |
 |---|---|---|
 | 把上传的文件入库 | `cenhua add <路径>`，或丢进 `inbox/` 后 `cenhua add --inbox` | 每篇 1 次索引调用 |
-| 后台自动摄取 | `cenhua watch` | 同上 |
+| 收录网页/URL | `cenhua add --url <url>`（可多次；批量用 `--url-file <清单>`；`--force` 跳过 robots） | 每页 1 次索引调用 |
+| 后台自动摄取 | `cenhua watch`（`--urls` 同时消费 `inbox/urls/*.url`） | 同上 |
 | "X 出现在哪 / 库里有没有提过 X" | `cenhua find <词>...` | 离线免费 |
 | 限定某篇文档 | `cenhua find X -d <文档关键词>` | 离线免费 |
 | 核对原文引文 | `cenhua read <文档> -p <页码>` | 离线免费 |

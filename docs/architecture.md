@@ -55,6 +55,8 @@
 
 - `ensure_deps()`：安装 python 依赖（pageindex 走 pypi.org `--no-deps`）。
 - `ensure_ocr()`：校验 RapidOCR 是否安装（必需依赖，缺失则提示）。
+- `ensure_chromium()`：安装 Playwright chromium（M2a 网页收录；有 root 走
+  `--with-deps`，无权限退回普通安装并警告系统库缺失，幂等）。
 - `configure_gateway()`：一次性网关决策，绝不静默（退出码 5）。
 - `confirm_location()`：存储位置决策（退出码 6）。
 - `feature_report()`：打印各功能开关状态。
@@ -62,8 +64,9 @@
 ### 2.4 `m_vault.py` — 库管理
 
 - `init` / `listing` / `use` / `rm` / `status` / `doctor` / `sources`。
-- `doctor` 分 5 段自检：python/引擎、网关、图片与扫描件（本地 OCR + 视觉
-  兜底）、向量层、存储完整性。
+- `doctor` 分 6 段自检：python/引擎、网关、图片与扫描件（本地 OCR + 视觉
+  兜底）、向量层、存储完整性、网页收录（chromium 启动自检，失败输出精确
+  修复命令）。
 
 ### 2.5 `m_ingest.py` — 摄取闭环
 
@@ -116,6 +119,33 @@
   计量（F7）、拒答非确定性治理（flaky.jsonl，F6.3）。
 
 CLI 层（`m_cost.py`）只做薄包装与输出，逻辑全部下沉到 service 层。
+
+### 2.12 `m_web.py` — 网页收录核心（M2a 起）
+
+- **抓取降级链**（R3-T9 行为闭环）：chromium 渲染（Playwright 无头，
+  `domcontentloaded` + 固定等 JS + 60s 硬上限 + CJK 字体注入 + 浏览器
+  UA/zh-CN 语境防反爬验证页）→ 渲染失败/缺失/空壳 → 静态 HTML 抓取
+  （`fetch_page()` 返回 `source='render'|'static'`）。
+- **正文守卫与干净 PDF**：两条抓取路径都要过 `MIN_CONTENT_CHARS` 门槛
+  （JS 空壳页/反爬验证页直接失败并给可读提示，不产出 0 字符 PDF）；
+  进索引的 PDF 由 readability 提取正文后 `build_clean_html()` 重排
+  （导航/推荐流/评论不进 PDF），整页只进快照溯源。
+- **爬虫礼仪**：`robots_allowed()`（robots.txt 不可达 fail-open；明确
+  Disallow 默认拒绝，CLI `--force` 显式覆盖）；
+  `RateLimiter` 同域名滑动窗口限速。
+- **纯函数离线可测**：`normalize_url()`（去 fragment、query 排序）、
+  `enforce_size_limit()`（5 MB 截断到标签边界）、`extract_readable()`
+  （readability 优先，降级 `<article>/<main>/<body>` 提取）、`slugify_url()`。
+- **双产物** `build_artifacts()`：PDF 进 vault 根 inbox（进索引，暂存语义
+  生效）；HTML 快照归档 `works/snapshots/` + `.meta.json` 溯源回链（溯源用、
+  不重复索引，roadmap §4.3）；无 PDF（静态降级）时 HTML 直接进 inbox 索引。
+
+### 2.13 `m_web_cli.py` — 网页收录编排（M2a 起）
+
+- `add --url/--url-file`：规范化去重 → robots → 限速 → 抓取 → 双产物 →
+  走既有 `m_ingest.ingest_one()` 闭环（sha1 去重、失败进 `.failed/`），
+  成功后 flatten 文本层。返回 rc（有失败=1）。
+- `watch --urls`：监听 `inbox/urls/*.url` 文件（浏览器扩展投放模式），读后删除。
 
 ## 3. 关键数据流
 

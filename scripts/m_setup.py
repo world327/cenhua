@@ -329,9 +329,49 @@ def ensure_ocr():
     return False
 
 
+def ensure_chromium():
+    """Install the Playwright chromium browser binary (M2a web ingestion).
+
+    With root/sudo: `playwright install --with-deps chromium` (also installs
+    the system libs libnss3/libatk etc. that WSL2 needs). Without permission:
+    fall back to `playwright install chromium` and warn that system libs are
+    missing. Idempotent: skips when chromium is already present.
+    """
+    import importlib.util
+    if not importlib.util.find_spec("playwright"):
+        L.say("! playwright not installed — `cenhua add --url` disabled")
+        L.say("  install it with:  pip install playwright")
+        return False
+    import m_web
+    if m_web.chromium_available():
+        L.say("= chromium already installed")
+        return True
+    L.say("~ installing chromium browser binary (~150 MB, one-time)...")
+    has_sudo = (os.geteuid() == 0) if hasattr(os, "geteuid") else False
+    if has_sudo:
+        L.say("$ python -m playwright install --with-deps chromium")
+        ok = subprocess.run([sys.executable, "-m", "playwright", "install",
+                             "--with-deps", "chromium"]).returncode == 0
+        if ok:
+            return True
+        L.err("  (--with-deps failed, trying plain install...)")
+    L.say("$ python -m playwright install chromium")
+    ok = subprocess.run([sys.executable, "-m", "playwright", "install",
+                         "chromium"]).returncode == 0
+    if not ok:
+        L.err("! chromium install failed — `cenhua add --url` will fall back to")
+        L.err("  static HTML fetch. Fix later with: sudo playwright install-deps chromium")
+        return False
+    if not has_sudo:
+        L.say("! chromium installed WITHOUT system libs (no root). On WSL2 the")
+        L.say("  browser may fail to launch. Fix with: sudo playwright install-deps chromium")
+    return True
+
+
 def feature_report(vault=None):
     env = L.build_env(vault)
     import m_ocr
+    import m_web
     feats = [
         ("offline find/read/status", True),
         ("ingest + ask (needs PI_BASE/PI_KEY)",
@@ -340,6 +380,8 @@ def feature_report(vault=None):
         ("vision fallback for images/scans (needs PI_VISION_MODEL)",
          bool(env.get("PI_VISION_MODEL"))),
         ("semantic recall (needs PI_EMBED_MODEL)", bool(env.get("PI_EMBED_MODEL"))),
+        ("web rendering for add --url (chromium; static fetch fallback)",
+         m_web.chromium_available()),
     ]
     L.say("\nfeatures:")
     for name, ok in feats:
@@ -385,6 +427,7 @@ def setup(vault_name=None, with_vault=True, for_openclaw=False, gateway=None,
         L.say("  fix later with: cenhua setup   (or pip install -r requirements.txt)")
 
     ensure_ocr()   # local OCR for images/scans; vision model stays the fallback
+    ensure_chromium()  # M2a: web ingestion browser; static fetch is the fallback
 
     # Decision 2 of 2: which LLM gateway (never silently taken).
     if v is not None and deps_ok:

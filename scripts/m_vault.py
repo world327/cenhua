@@ -165,6 +165,22 @@ def status(v):
 
 
 # ----------------------------------------------------------------- doctor ---
+def _chromium_selfcheck(timeout=15):
+    """spawn chromium 无头加载 about:blank（超时 15s）。返回 (ok, note)。"""
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                page = browser.new_page()
+                page.goto("about:blank", timeout=timeout * 1000)
+                return True, ""
+            finally:
+                browser.close()
+    except Exception as e:
+        return False, f"{type(e).__name__}: {str(e)[:120]}"
+
+
 def doctor(v):
     """Environment + store self-check. Exit code 0 = usable for offline mode."""
     problems, warns = [], []
@@ -258,6 +274,23 @@ def doctor(v):
     # never shadow PageIndex's own manifest name
     if os.path.exists(os.path.join(v.store, "source_map.csv")):
         L.say("  ✓ source_map.csv ledger present")
+
+    L.say(f"\n[6] web ingestion (M2a: `cenhua add --url`)")
+    import m_web
+    if m_web.chromium_available():
+        # 启动自检：spawn chromium 无头加载 about:blank（超时 15s）
+        ok, note = _chromium_selfcheck()
+        if ok:
+            L.say("  chromium: on - JS rendering available")
+        else:
+            problems.append(f"chromium launch self-check failed: {note}")
+            L.say("  chromium: PROBLEM - `cenhua add --url` will fall back to "
+                  "static HTML fetch")
+            L.say("  fix: sudo playwright install-deps chromium")
+    else:
+        warns.append("chromium not installed - `cenhua add --url` uses static "
+                     "HTML fetch only (no JS rendering); fix: "
+                     "cenhua setup (installs chromium)")
 
     L.say("\n" + "=" * 58)
     for p in problems:

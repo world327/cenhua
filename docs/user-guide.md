@@ -63,7 +63,8 @@ cenhua ask --doc contract "终止罚则是什么"
 
 ```
 VAULTS    init · vaults · use · status · doctor · rm · config · sources
-INTAKE    add <files|dir|--inbox> · watch [--interval N] [--once]
+INTAKE    add <files|dir|--inbox> · add --url <url> [--url ...] ·
+          add --url-file <path> [--no-render] · watch [--interval N] [--once] [--urls]
 RETRIEVE  find <terms> [-d doc] [-i] [-r] · read <doc> [-p N] [-g re] · list
 DEEP READ ask [--doc kw | --all] "q" [--limit N] [--dry-run]   (成本护栏)
 SEMANTIC  index build|status · seek "question"     (可选向量层)
@@ -140,7 +141,47 @@ export CENHUA_OCR=vision
 # 或写入库配置: cenhua config ocr vision
 ```
 
-### 4.3 检索
+### 4.3 网页收录（v0.3.0 · M2a 起）
+
+把网页 URL 发给 CENHUA，自动抓取 → 生成产物 → 走标准摄取闭环：
+
+```bash
+# 单个 / 多个 URL
+cenhua add --url https://example.com/article
+cenhua add --url https://a.com/1 --url https://b.com/2
+
+# 从文件读（每行一个 URL，# 开头为注释）
+cenhua add --url-file urls.txt
+
+# 禁用渲染，直接静态抓取（快，但 JS 重页面内容不全）
+cenhua add --url https://example.com --no-render
+
+# robots.txt 明确禁爬但你有把握（如自己的站点、已获授权的站点）
+cenhua add --url https://mp.weixin.qq.com/s/xxxx --force
+
+# 监听 inbox/urls/*.url 文件（浏览器扩展/脚本写入，读后删除）
+cenhua watch --urls
+```
+
+工作方式与保障：
+
+- **双产物**：有 chromium 时渲染为 PDF（readability 提取正文后重新排版，
+  导航/推荐流/评论不进 PDF；进索引）+ HTML 快照
+  （整页归档 `works/snapshots/`，溯源用，不重复索引）；无 chromium 时降级
+  静态 HTML 抓取（此时 HTML 直接进索引，内容不丢；纯 JS 渲染的站点如
+  头条 m 站静态无正文，会明确报错提示 `cenhua setup` 装 chromium）。
+- **chromium 安装**：`cenhua setup` 会装 chromium（约 150 MB）；装不上也能用，
+  自动走静态抓取。自检：`cenhua doctor`（失败时输出
+  `sudo playwright install-deps chromium` 修复命令）。
+- **爬虫礼仪**：遵循 robots.txt（明确禁爬则拒绝，可用 `--force` 显式覆盖并
+  打印一次告警）；同域名每秒最多 1 次。注意：微信公众平台 robots 写
+  `Disallow: /`，收录微信文章需要 `--force`。
+- **去重**：URL 规范化（去 fragment、query 排序）后去重；产物 sha1 去重同本地文件。
+- **大小上限**：单页 5 MB，超出截断到标签边界并提示（可用
+  `CENHUA_MAX_PAGE_BYTES` 调整；注意 MB 级 HTML 转 PDF 是分钟级，树索引慢）。
+- **失败隔离**：抓取/摄取失败进 `inbox/.failed/`，不影响其他 URL 与本地文档摄取。
+
+### 4.4 检索
 
 **存在性用 `find`，意义用 `ask`。**
 
@@ -152,7 +193,7 @@ cenhua ask --doc contract "终止罚则是什么"
 cenhua ask --all "总结本库要点" --dry-run   # 先看要花几次调用
 ```
 
-### 4.4 溯源
+### 4.5 溯源
 
 每条命中都带 `[doc P页]` 和 `Source:` 行，指向存档原件：
 
@@ -160,7 +201,7 @@ cenhua ask --all "总结本库要点" --dry-run   # 先看要花几次调用
 cenhua sources 违约金    # 查看原始上传与存档副本
 ```
 
-### 4.5 成本与质量（M1a 起）
+### 4.6 成本与质量（M1a 起）
 
 **成本月报**：所有 LLM 调用（含摄取树索引）都记入成本台账，按命令分组汇总，
 摄取成本单列首位：

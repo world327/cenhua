@@ -9,6 +9,9 @@ echo
 echo "== M1a service layer (cost/verify/bench, 19 tests)"
 python3 -W ignore::ResourceWarning tests/test_service.py -q || rc=1
 echo
+echo "== M2a web ingestion (robots/rate-limit/render/artifacts, 24 tests)"
+python3 -W ignore::ResourceWarning tests/test_web.py -q || rc=1
+echo
 echo "== local OCR layer (RapidOCR stubbed, real renderers)"
 python3 tests/test_ocr.py 2>&1 | tail -3 || rc=1
 echo

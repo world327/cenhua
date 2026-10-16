@@ -110,10 +110,52 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 
 ## 8. 测试
 
-- 全套离线测试：`bash tests/run_tests.sh`（unit 34 + **service 19** + OCR 14 +
-  semantic + formats + smoke），无需 API key。
+- 全套离线测试：`bash tests/run_tests.sh`（unit 34 + **service 19** +
+  **web 24** + OCR 14 + semantic + formats + smoke），无需 API key。
 - 本地 OCR 单测：`python3 tests/test_ocr.py`（后端打桩、渲染真实）。
 - **service 层纪律**：`cenhua_service/` 禁 `print`/`exit`（`test_70` 全量生效）；
   白名单命令 CLI 薄包装（`test_71`，M1a: cost/bench）。
 - **质量门禁**：`cenhua bench` 跑 fixture（存在性 100% + 引文条目 ≥95%），
   发版前必跑；`--corpus` 跑用户库 QA（报告模式）。
+- **`m_lib.HOME` 是 import 时常量**：测试文件若要重定向存储根，必须在
+  **import 任何 m 模块之前**设置 `CENHUA_HOME` env（setUpClass 里设无效，
+  见 test_service.py / test_web.py 顶部写法）。
+
+## 9. 网页收录（M2a）
+
+- **双产物不要都进索引**：HTML 快照与渲染 PDF 内容重复，索引它会污染检索
+  且双倍 sha1；快照归档 `works/snapshots/`（溯源用），只有 PDF 进 inbox。
+  无 PDF（静态降级）时 HTML 才直接进 inbox，保证内容不丢。
+- **产物必须写 vault 根 inbox**（`url-` 前缀标注来源）：`ingest_one()` 的
+  `.processed/.failed` 暂存语义只对 inbox 根的文件生效，写子目录会丢暂存。
+- **树索引需要 LLM 网关**（`PI_BASE/PI_KEY`）：无网关时 `add --url` 抓取与
+  产物落盘成功、摄取失败进 `.failed/`——测试按"失败隔离"设计断言，
+  不假装端到端成功。
+- **chromium 缺系统库（WSL2 常见）**：`playwright install chromium` 只装
+  浏览器二进制；`--with-deps` 才装 libnss3 等。doctor 启动自检失败时输出
+  `sudo playwright install-deps chromium`；运行时自动降级静态抓取，不断链。
+- **robots.txt 不可达选择 fail-open**：站点没放 robots.txt 很常见，
+  fail-closed 会误伤；明确 Disallow 才拒绝。明确禁爬默认拒绝，
+  `--force` 显式覆盖（个人知识库自用场景，如微信公众号）。
+- **UA 按 bot 判定的站点要浏览器语境**：微信公众平台对默认 UA 返回
+  "环境异常"验证页（渲染成功但正文是空壳）。渲染走 `new_context(
+  user_agent=BROWSER_UA, locale='zh-CN')`，静态抓取也带浏览器 UA。
+  排障口诀：**渲染"成功"但正文极短 → 先怀疑反爬验证页，不是抓取失败**。
+- **`wait_until` 用 `domcontentloaded` 而非 `networkidle`**：信息流站点
+  （头条 m 站）埋点/长连接让网络永不空闲，networkidle 必然拖到 60s 超时
+  后降级静态——而静态 HTML 可见文本为 0（纯 JS 渲染），最终 PDF 0 字符。
+  正解：`domcontentloaded` + 固定等 JS 渲染（实测头条 3s 出正文）。
+- **整页 PDF 会被噪声淹没**：信息流站整页渲染把导航、推荐流、评论、播放
+  列表全排进去（实测页首是"首页 反馈 下载 扫码下载"，正文标题被埋）。
+  进索引的 PDF 用 readability 提取正文后**重新排版**（`build_clean_html`），
+  整页只留在 HTML 快照溯源。
+- **正文守卫（MIN_CONTENT_CHARS，默认 100）**：JS 空壳页/反爬验证页会
+  "抓取成功"但正文极少，必须在 fetch 层拦下给出可读错误，否则到 PDF 转换
+  才以 `layout integrity check failed: PDF has 0 chars` 崩。
+- **JS 动态提取文本时**别用字符串 `*10`（JS 里得 `NaN`），用 `.repeat(10)`。
+- **MB 级 HTML 转 PDF 是分钟级**：引擎 `insert_htmlbox` 逐块排版，5MB 页面
+  转换实测 >80s（无网关时也先转换再报 env 缺失）。截断行为测试用
+  `CENHUA_MAX_PAGE_BYTES` 调小上限，别真转 5MB。
+- **测试内 HTTP server 用 ThreadingTCPServer**：客户端按大小上限提前收手时，
+  单线程 `TCPServer` 会永久阻塞在 `wfile.write`（死锁假象）；handler 还需
+  吞掉 `BrokenPipeError`。

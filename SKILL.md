@@ -82,7 +82,8 @@ misses. Reserve `ask` for summaries, characterizations and cross-page inference.
 | User wants | Command | Costs |
 |---|---|---|
 | store uploaded files | `cenhua add <paths>` or drop into `<vault>/inbox` then `cenhua add --inbox` | 1 LLM index/doc (image/scan transcription: local, free) |
-| keep inbox ingested automatically | `cenhua watch` (background) | same |
+| store a web page / URL | `cenhua add --url <url>` (repeatable; `--url-file <list>` for many; `--force` to ignore robots) | 1 LLM index/page |
+| keep inbox ingested automatically | `cenhua watch` (background; `--urls` also drains `inbox/urls/*.url`) | same |
 | "where does X appear? / does my corpus mention X?" | `cenhua find <term>...` | offline, free |
 | narrow to one document | `cenhua find X -d <doc-kw>` | offline, free |
 | verify a quote against the original | `cenhua read <doc> -p <page>` | offline, free |

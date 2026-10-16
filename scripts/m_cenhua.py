@@ -44,7 +44,11 @@ VAULTS
 INTAKE
   add <file|dir>... [--no-flatten]  ingest now (any format, sha1-deduped)
   add --inbox                       ingest everything sitting in the inbox
+  add --url <url>... [--url-file F] ingest web pages (render -> PDF + HTML)
+                                    [--no-render] force static HTML fetch
+                                    [--force] ignore robots.txt disallow
   watch [--interval S] [--once]     keep the inbox ingested in the background
+  watch --urls [--once] [--force]   watch inbox/urls/*.url for web ingestion
 
 RETRIEVAL
   find <term>... [-d kw] [-i] [-r]  exact text-layer grep, page numbers   [OFFLINE]
@@ -296,6 +300,25 @@ def main():
     # ---- intake ------------------------------------------------------------
     if cmd == "add":
         import m_ingest
+        # 网页收录（M2a）：--url / --url-file
+        urls = []
+        i = 0
+        while i < len(rest):
+            if rest[i] == "--url" and i + 1 < len(rest):
+                urls.append(rest[i + 1])
+                i += 2
+                continue
+            if rest[i].startswith("--url="):
+                urls.append(rest[i].split("=", 1)[1])
+                i += 1
+                continue
+            i += 1
+        url_file = rest[rest.index("--url-file") + 1] if "--url-file" in rest else None
+        if urls or url_file:
+            import m_web_cli
+            return m_web_cli.add_url_cmd(v, urls, url_file=url_file,
+                                         use_render=not flag(rest, "--no-render"),
+                                         force=flag(rest, "--force"))
         paths = [a for a in rest if not a.startswith("-")]
         return m_ingest.add(v, paths, use_inbox=flag(rest, "--inbox"),
                             flatten=not flag(rest, "--no-flatten"))
@@ -307,6 +330,12 @@ def main():
                 interval = float(rest[rest.index("--interval") + 1])
             except (ValueError, IndexError):
                 L.die("--interval needs a number of seconds")
+        # 网页收录（M2a）：watch 同时监听 inbox/urls/*.url
+        if flag(rest, "--urls"):
+            import m_web_cli
+            return m_web_cli.watch_urls(v, interval=interval,
+                                        once=flag(rest, "--once"),
+                                        force=flag(rest, "--force"))
         return m_ingest.watch(v, interval=interval, once=flag(rest, "--once"))
     if cmd == "flatten":
         import m_ask
