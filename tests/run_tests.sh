@@ -12,6 +12,12 @@ echo
 echo "== M2a web ingestion (robots/rate-limit/render/artifacts, 24 tests)"
 python3 -W ignore::ResourceWarning tests/test_web.py -q || rc=1
 echo
+echo "== M1b mail intake + watch hardening (5 tests)"
+python3 -W ignore::ResourceWarning tests/test_mail.py -q || rc=1
+echo
+echo "== M1b knowledge weaving (summaries/refine gates/relations, 28 tests)"
+python3 -W ignore::ResourceWarning tests/test_weave.py -q || rc=1
+echo
 echo "== local OCR layer (RapidOCR stubbed, real renderers)"
 python3 tests/test_ocr.py 2>&1 | tail -3 || rc=1
 echo

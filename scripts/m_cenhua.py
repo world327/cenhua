@@ -42,7 +42,8 @@ VAULTS
   sources [kw]                      provenance: origin file + archived copy
 
 INTAKE
-  add <file|dir>... [--no-flatten]  ingest now (any format, sha1-deduped)
+  add <file|dir>... [--no-flatten]  ingest now (any format, sha1-deduped;
+                                    .eml/.msg expanded with attachments)
   add --inbox                       ingest everything sitting in the inbox
   add --url <url>... [--url-file F] ingest web pages (render -> PDF + HTML)
                                     [--no-render] force static HTML fetch
@@ -65,6 +66,15 @@ COST & QUALITY
                                     (ingest cost listed first)
   bench [--corpus]                  quality gate: fixture (blocking) or
                                     user-vault QA (report mode)
+
+KNOWLEDGE WEAVING (offline unless refining)
+  related <doc>                     related docs with evidence 4-layers      [OFFLINE]
+  link <docA> <docB>                manual relation (weight 0.8)             [OFFLINE]
+  link --ban <entA> <entB>          suppress an entity pair forever          [OFFLINE]
+  hub                               hub entities for review + current tier   [OFFLINE]
+  weave rebuild                     rebuild relations.jsonl                  [OFFLINE]
+  refine [--all --dry-run|--drain]  rule summaries -> LLM refinement queue;
+                       [--force]     budget gate: CENHUA_REFINE_BUDGET_CNY
 
 Examples
   cenhua init contracts --title "Client contracts"
@@ -284,6 +294,21 @@ def main():
     if cmd == "bench":
         import m_cost
         return m_cost.bench_cmd(v, corpus=flag(rest, "--corpus"))
+    if cmd == "refine":
+        import m_weave
+        return m_weave.refine_cmd(v, rest)
+    if cmd == "related":
+        import m_weave
+        return m_weave.related_cmd(v, rest)
+    if cmd == "link":
+        import m_weave
+        return m_weave.link_cmd(v, rest)
+    if cmd == "hub":
+        import m_weave
+        return m_weave.hub_cmd(v, rest)
+    if cmd == "weave":
+        import m_weave
+        return m_weave.weave_cmd(v, rest)
 
     if cmd == "status":
         import m_vault

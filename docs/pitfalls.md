@@ -111,7 +111,8 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 ## 8. 测试
 
 - 全套离线测试：`bash tests/run_tests.sh`（unit 34 + **service 19** +
-  **web 24** + OCR 14 + semantic + formats + smoke），无需 API key。
+  **web 24** + **mail 5** + **weave 28** + OCR 14 + semantic + formats +
+  smoke），无需 API key。
 - 本地 OCR 单测：`python3 tests/test_ocr.py`（后端打桩、渲染真实）。
 - **service 层纪律**：`cenhua_service/` 禁 `print`/`exit`（`test_70` 全量生效）；
   白名单命令 CLI 薄包装（`test_71`，M1a: cost/bench）。
@@ -159,3 +160,38 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 - **测试内 HTTP server 用 ThreadingTCPServer**：客户端按大小上限提前收手时，
   单线程 `TCPServer` 会永久阻塞在 `wfile.write`（死锁假象）；handler 还需
   吞掉 `BrokenPipeError`。
+
+## 10. 邮件与编织（M1b）
+
+**邮件展开**
+- **正文里的 `<邮箱>` 必须消毒**（`_desugar` → `(a@b.c)`）：markdown 把尖括号
+  邮箱转成 `&#109;&#97;…` 实体编码自动链接，引擎完整性校验按"去标签后的
+  HTML 文本"计字符数，实体让期望值虚高 → 短邮件必现
+  `layout integrity check failed: PDF has 143 chars vs source 204`。
+  引擎字节级不动，**生产端消毒是正解**。
+- **`.msg` 附件表是 2 层结构**：`ole.listdir()` 返回的 entry 形如
+  `['__attach_version1.0_00000000', '__substg1.0_37010102']`，按 `len==3`
+  过滤会永远取不到附件；同理顶层属性要按 `entry[0]` 前缀排除附件表，
+  否则附件名会被当成邮件主题。
+- **`is_supported(path)` 吃完整文件名**：传裸扩展名（`".csv"`）时
+  `splitext` 把开头的点当隐藏文件，返回空扩展 → 全部附件被判"不支持"。
+- **olefile 不能从零写 OLE**（`write_mode=True` 后 `isOleFile` 仍为假）：
+  `.msg` 单测必须打桩 `OleFileIO`/`isOleFile` 喂合成流，别指望构造样本文件。
+- **watch 排序测试别用 `os.utime`**：utime 改得了 mtime 改不了 ctime；
+  要验证到达序断言，用创建间隔（>1s）拉开真实 ctime。
+
+**编织（关联/精化）**
+- **极小库纯比例判枢纽会让 related 常年空转**：N=3 时 `df > N×0.5` 意味着
+  出现 2 次的正常信号被判枢纽。必须加**绝对地板** `HUB_MIN_DF=3`
+  （`df>N×ratio AND df>=3`）——这正是 T6 要防的反面。
+- **build 前必须 `ensure_summaries`**：summaries 缺失时实体集为空、
+  关联静默 0 边（看起来"正常但什么都没有"）。建边/`hub`/`weave rebuild`
+  入口都要先补齐规则层（零 LLM，成本可忽略）。
+- **预算闸要处理币种不一致**：预算按 CNY 配（`CENHUA_REFINE_BUDGET_CNY`），
+  模型报价可能是 USD，直接比数字会让闸形同虚设。按保守汇率上限折 CNY
+  再比（**闸只收紧不放松**）。
+- **`related` 空结果不能沉默**：输出"无显著关联（正常）"——关联为空本身
+  是信息，沉默会让用户以为功能坏了。
+- **CLI 薄包装的坑在格式化行数**：`test_71` 按函数源码行数计（含 docstring）。
+  一旦在 CLI 里拼输出就超 10 行——正解是把输出格式化下沉 service 层
+  （`related_lines` / `refine_flow`），CLI 只做解析+打印。

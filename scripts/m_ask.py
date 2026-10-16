@@ -118,6 +118,13 @@ def ask(vault, question, doc=None, all_docs=False, limit=10, workers=None,
     if rc == 0:
         record(vault, n, "all" if all_docs else "doc",
                [name for _, name in targets][:30])
+        # 命中入队（M1b §5.3）：被深读的文档进精化队列，等预算消费
+        try:
+            from cenhua_service import refine as R
+            for d, _ in targets:
+                R.enqueue(vault, d, reason="ask")
+        except Exception:
+            pass
         L.say(f"\n[ask] {n} LLM call(s) used | {time.time()-t0:.0f}s | "
               f"every answer above carries a 'Source:' line — open the archived "
               f"original to verify before you publish")

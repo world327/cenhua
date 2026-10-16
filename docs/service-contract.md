@@ -98,6 +98,54 @@ class CostEstimate:
 | `calibrate` | `calibrate(vault, actual) -> None` | 预估校准闭环（偏差 >3x 告警） |
 | `bench` | `bench(vault, corpus=False) -> BenchReport` | 跑 fixture（阻断级）/ 用户库（报告模式） |
 
+### 3.3 M1b 新增模块与函数（编织层，登记制先行）
+
+`cenhua_service/summaries.py`（规则先行层，零 LLM；`summarize` 不是用户命令，
+不入 test_71 白名单，由 test_70 管辖——F10）：
+
+```python
+# <vault>/meta/summaries/<doc_id>.json —— schema_version=1，只加不删
+{
+  "schema_version": 1, "doc_id": str, "name": str, "ts": str,
+  "status": "rule-only" | "refined",
+  "tier": "internal-artifact",          # 正文不进引文；hint 消费自 v0.3.3（F3）
+  "title": str, "first_paragraph": str,
+  "entities": {"money":[], "date":[], "email":[], "id_number":[], "capitalized":[]},
+  "keywords": [{"term": str, "tf": int}],   # tf 降序
+  "headings": [str], "chars": int, "tokens_estimate": int,
+  "refined": null | {"summary": str, "entities_llm": [str], "ts": str, "model": str}
+}
+```
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `summaries.rule_summarize` | `(doc_id, name, text_layer) -> dict` | 纯函数规则总结（首段/正则实体/TF 关键词/标题） |
+| `summaries.refresh` / `ensure_all` / `load_summary` / `save_summary` | 见源码 | 落盘与幂等（refined 不降级） |
+| `refine.enqueue` / `pending` | `(vault, doc_id, reason)` / `(vault) -> [item]` | `meta/refine_queue.jsonl`；幂等；refined 自动出队 |
+| `refine.estimate` | `(vault, doc_ids) -> dict` | 队列估价（tokens_estimate 汇总） |
+| `refine.budget_check` | `(est, force=False) -> (ok, msg)` | 三闸之②③：`CENHUA_REFINE_BUDGET_CNY`（默认 0 拒绝）；USD 按上限汇率折算收紧 |
+| `refine.refine_one` / `drain` / `refine_flow` | 见源码 | LLM 精化 + JSON 解析失败走规则首段 fallback；F1 豁免中途执法；失败留队列 |
+
+`cenhua_service/relations.py`（四层降噪，纯 Python 统计零 LLM）：
+
+```python
+# <vault>/meta/relations.jsonl 每行 —— schema_version 隐含 v1
+{"from": doc_id, "to": doc_id,
+ "type": "cooccurrence"|"time_series"|"cite"|"similar",
+ "weight": float,          # 人工 0.8；自动 ≤0.6
+ "evidence": str,          # "共现 [A, B] 于 [doc P1, doc P9], nPMI=0.42"
+ "source": "auto"|"manual", "ts": str, "tier": "internal-artifact"}
+# <vault>/meta/link_bans.json：黑名单实体对（永久压制）
+```
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `relations.profile` | `(n_docs) -> dict` | 档位（small/standard）+ 参数（floor/枢纽比/平滑），`CENHUA_SMALL_CORPUS_N` 默认 200 |
+| `relations.npmi` / `hub_entities` | 纯函数 | nPMI 公式与枢纽判定（含 `HUB_MIN_DF=3` 绝对地板，防极小库误判） |
+| `relations.build` | `(vault) -> stats` | 全量重建（先 ensure_summaries）；Top-8 截断；人工边保留 |
+| `relations.related` / `related_lines` | `(vault, doc_id[, name])` | 权重降序 + 证据；空结果明示；命中入精化队列 |
+| `relations.manual_link` / `add_ban` | 见源码 | 人工边 0.8 / 黑名单永久压制 |
+
 ---
 
 ## 4. `schema_version` 演进记录

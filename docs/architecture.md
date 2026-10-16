@@ -147,6 +147,46 @@ CLI 层（`m_cost.py`）只做薄包装与输出，逻辑全部下沉到 service
   成功后 flatten 文本层。返回 rc（有失败=1）。
 - `watch --urls`：监听 `inbox/urls/*.url` 文件（浏览器扩展投放模式），读后删除。
 
+### 2.14 `m_mail.py` — 邮件展开（M1b · §4.4 唯一归属）
+
+- `.eml` 走标准库 `email`（policy=default），`.msg` 走 olefile 按 [MS-OXMSG]
+  读属性表（`__properties_version1.0` 顶层流）与附件表
+  （`__attach_version1.0_*` 2 层结构）；olefile 缺失只影响 .msg。
+- `expand()` 产出部件列表：正文 Markdown（抬头+正文+附件清单）+ 受支持格式
+  的附件文件，落 `meta/mail/<sha1前12>/`；不支持的附件在清单留痕。
+- `m_ingest.ingest_one()` 路由邮件：逐部件走同一闭环，单部件失败移入
+  `.failed/` 不拖垮整封；`restore_provenance()` 把台账指回邮件原件。
+- **尖括号消毒**（`_desugar`）：`<a@b.c>` 会被 markdown 转成实体编码自动链接，
+  引擎完整性校验按 HTML 文本计数虚高 → 短邮件必现 `PDF has N chars` 失败；
+  引擎字节级不动，生产端消毒。
+
+### 2.15 `cenhua_service/{summaries,refine,relations}.py` — 编织层（M1b）
+
+- **summaries**（规则先行，零 LLM）：首段（跳标题行）/正则实体（金额/日期/
+  邮箱/证件号/大写实体）/TF 关键词（英文词 + 中文 n-gram 加权）/标题结构；
+  落 `meta/summaries/<doc>.json`（`status=rule-only`，
+  `tier=internal-artifact`）；refined 结果幂等刷新不降级。
+- **refine**（按需精化 + 三闸）：`refine_queue.jsonl` 幂等入队（ask/related
+  命中触发）、refined 自动出队；三闸顺序 ① dry-run 估价 → ②
+  `CENHUA_REFINE_BUDGET_CNY`（默认 0 拒绝；USD 按保守汇率折 CNY）→ ③
+  `--force`；`drain` 启动前 all-or-nothing（F1 豁免中途执法），失败留队列，
+  JSON 解析失败走规则首段 fallback，每篇写 cost-ledger（T5）。
+- **relations**（四层降噪，纯统计零 LLM）：实体对候选 → ①枢纽判定
+  （`df>N×ratio` 且 `df>=HUB_MIN_DF=3` 绝对地板防极小库误判）→ ②nPMI≤0 不建边
+  （小库档 +Laplace）→ ③共现地板（2/1）→ ④`link_bans.json` 人工压制；
+  实体对边投影为文档对边（证据含共现实体/页码/nPMI），日期≤90 天标
+  `time_series`；自动边权 ≤0.6、人工 0.8；每文档 Top-8 截断（人工边不截）；
+  衍生文档（digest/draft）不参与建边（§7.3）。
+- 档位一处定义：`profile(N)`（small: floor1/ratio0.5/Laplace；standard:
+  floor2/ratio0.3/raw），阈值 `CENHUA_SMALL_CORPUS_N` 默认 200。
+
+### 2.16 `m_weave.py` — 编织层 CLI 薄包装（M1b）
+
+`refine` / `related` / `link` / `hub` / `weave rebuild` 五个用户命令只做参数
+解析与打印；输出格式化在 service 层（`refine_flow` / `related_lines`）。
+`refine`/`related` 进 test_71 白名单（≤10 行）；`summarize` 不是用户命令、
+不入白名单，由 test_70 管辖（F10）。
+
 ## 3. 关键数据流
 
 ### 3.1 摄取（含本地 OCR）
@@ -234,6 +274,9 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 | `CENHUA_MAX_COST_CNY` | env / vault.yaml `max_cost` | `2.0` | 单命令花费上限（M1a）；不适用 add/watch 与长任务/批量任务 |
 | `CENHUA_LONGJOB_MAX_COST_CNY` | env / vault.yaml `longjob_max_cost` | `5.0` | 长任务（digest/draft）独立预算（M1a 起登记） |
 | `CENHUA_PRICING` | env | `pricing.json` | 单价表覆盖路径（M1a） |
+| `CENHUA_REFINE_BUDGET_CNY` | env | `0`（拒绝） | refine 预算硬闸，CNY；USD 报价按保守汇率折算比较（M1b） |
+| `CENHUA_SMALL_CORPUS_N` | env | `200` | 小库模式阈值：N 低于该值用降档参数（M1b） |
+| `CENHUA_MIN_CONTENT_CHARS` | env | `100` | 网页正文守卫下限（渲染/静态共用）（M2a） |
 
 ## 6. 扩展点
 

@@ -28,6 +28,9 @@
 >   （F6）；引文按条目计量（F7）；删 Nginx/open_id 租户残肢（F8）；pricing 加
 >   currency + OpenClaw 全名匹配规则（F9）；test_71 白名单去 summarize、digest
 >   事件触发改 watch 打印提示（F10）；矩阵编织行恢复 ✅(半)双标（F11）。
+> - 2026-10 五轮（版本排期微调）：M1b 实际交付晚于 M2a(v0.3.0)，**M1b 版本号
+>   v0.2.1 → v0.3.2、M2b v0.3.1 → v0.3.3**（保持发布号单调递增，主人拍板）；
+>   M3a 起里程碑版本号不变。
 
 ---
 
@@ -204,7 +207,7 @@ cenhua watch                                        # 监听 <vault>/inbox/urls/
 `sudo playwright install-deps chromium`。系统库依赖体积另计 ~100-200MB。自检失败时
 `--url` 自动降级静态 HTML 抓取。
 
-### 4.4 离线增强（v0.2.1 · M1b，唯一归属——F5）
+### 4.4 离线增强（v0.3.2 · M1b，唯一归属——F5）
 
 - 邮件格式 `eml` / `msg` 摄取（带附件展开；与网页摄取无耦合，先做不欠账）
 - `watch` 增强：文件可见性防护（flush + fsync + size 稳定后再摄取）、`create_time` 排序治乱序
@@ -235,7 +238,7 @@ cenhua watch                                        # 监听 <vault>/inbox/urls/
 - **引文溯源**：每条命中带 `[doc P页]` + `Source:` 行
 - **可选向量语义层**：`index build` / `seek`
 
-### 5.3 文档总结分析（v0.2.1 · M1b，衍生分析默认免费 + hint 角色，hint 自 v0.3.1 生效）
+### 5.3 文档总结分析（v0.3.2 · M1b，衍生分析默认免费 + hint 角色，hint 自 v0.3.3 生效）
 
 **核心原则**：衍生分析（总结、NER、关联）默认免费，规则先行、按需精化、预算硬闸；
 **树索引构建是摄取固有成本**（已在 §13 台账，不属三道闸门管辖——摄取被预算中途拒绝
@@ -267,11 +270,11 @@ cenhua watch                                        # 监听 <vault>/inbox/urls/
 
 **★ refine 价值消费者**（T1 + R4-F3）：refine 产出的精化总结（`tier=internal-artifact`）
 正文**禁止作为事实证据进入引文**（not-evidence），**但可作为导航提示（hint 角色）
-进入 LLM prompt**——**hint 消费自 v0.3.1 起生效**（M2b query 两段式 prompt 组装，
+进入 LLM prompt**——**hint 消费自 v0.3.3 起生效**（M2b query 两段式 prompt 组装，
 F3 主人裁决提前进 M2b；M3a 改为注入对抗硬化，不再是机制首发）。预算设置与用户可见
-价值同版本出现，不再有"v0.2.1→v0.4 之间花钱生产没人看的文件"的排期缺口。
+价值同版本出现，不再有"v0.3.2→v0.3.3 之间花钱生产没人看的文件"的排期缺口。
 
-### 5.4 跨文档关联（v0.2.1 · M1b，四层降噪 + 小库模式）
+### 5.4 跨文档关联（v0.3.2 · M1b，四层降噪 + 小库模式）
 
 **关联类型**：实体共现（自动，需降噪） / 主题相似（自动，向量层） / 显式引用（人工）/ 时间序列（自动）。
 
@@ -348,7 +351,7 @@ cenhua hub                                # 列出枢纽实体供复核（显示
 
 检索哲学：`find` → `ask --doc` → `seek` → `ask --all`，按成本递增调用。
 
-### 6.3 总结延展检索（v0.3.1 · M2b，重点；hint 两段式 prompt 自此生效——F3）
+### 6.3 总结延展检索（v0.3.3 · M2b，重点；hint 两段式 prompt 自此生效——F3）
 
 把"检索 + 总结 + 关联推荐"合并为面向用户的检索命令。
 
@@ -377,7 +380,7 @@ cenhua query "ABC 合同的违约金条款"
   - 基于 hint 得出的结论必须从 primary 正文**重新验证**后引用
   - M3a 增量为**注入对抗硬化**（hint 段指令剥离、fixture 注入对抗题），不再是机制首发
 
-### 6.4 成本货币化护栏（v0.2.0 · M1a 基础；v0.3.1 · M2b 推广至全命令 + hint 生效）
+### 6.4 成本货币化护栏（v0.2.0 · M1a 基础；v0.3.3 · M2b 推广至全命令 + hint 生效）
 
 `--dry-run` 输出从"预估 calls"升级为"预估 calls + tokens + 金额"：
 
@@ -657,12 +660,12 @@ OpenClaw 技能包；离线文档摄取闭环（多格式 + 本地 OCR + 去重�
 
 **依赖**：M0。
 
-### M1b · v0.2.1 · 编织（🚧 规划）
+### M1b · v0.3.2 · 编织（🚧 规划）
 
 **交付物**（T3 拆分；复用 M1a 换算函数与 verify_citation 两处；F5 唯一归属 §4.4）：
 - §4.4 离线增强（**唯一归属**——邮件 `eml`/`msg` + watch 强化；F5；M2a 不再重复此行）
 - §5.3 文档总结（deferred 模式：规则先行 + 按需精化 + 预算硬闸；refine 机制保留，
-  hint 角色规则见 §7.3——**hint 消费自 v0.3.1 起生效**，F3；`refine --drain` 是批量
+  hint 角色规则见 §7.3——**hint 消费自 v0.3.3 起生效**，F3；`refine --drain` 是批量
   任务豁免中途执法，仅受 `CENHUA_REFINE_BUDGET_CNY` 启动前 all-or-nothing 检查管辖，F1）
 - §5.4 跨文档关联（四层降噪：IDF / nPMI / 共现地板 / 人工阀门；**含小库模式自动降档**，
   T6；`CENHUA_SMALL_CORPUS_N` 默认 200）
@@ -672,7 +675,7 @@ OpenClaw 技能包；离线文档摄取闭环（多格式 + 本地 OCR + 去重�
 - 防回潮测试：`test_71_cli_is_thin`（白名单内命令生效）
 
 **用户场景**：摄取一份新合同，CENHUA 规则层即时给出关键词与实体粗提；首次被 `query`
-命中时入精化队列，`cenhua refine --drain` 消费（hint 消费待 v0.3.1 query 落地生效）；
+命中时入精化队列，`cenhua refine --drain` 消费（hint 消费待 v0.3.3 query 落地生效）；
 `related` 输出带 nPMI 证据的关联；`cenhua hub` 显示当前档位与 N。
 
 **依赖**：**M1a**（仅换算函数与 `verify_citation` 两处）。M2a 与 M1 支线并行，互不阻塞。
@@ -697,7 +700,7 @@ OpenClaw 技能包；离线文档摄取闭环（多格式 + 本地 OCR + 去重�
 
 **依赖**：M0（★不依赖 M1，可与 M1 并行开发；语料贡献是增益不是前置）。
 
-### M2b · v0.3.1 · 延展检索 + 成本货币化推广 + 拒答门禁 + ★ hint 两段式 prompt 首发（📋 规划）
+### M2b · v0.3.3 · 延展检索 + 成本货币化推广 + 拒答门禁 + ★ hint 两段式 prompt 首发（📋 规划）
 
 **交付物**：
 - §6.3 总结延展检索 `cenhua query` 四段输出
@@ -823,13 +826,13 @@ M0 v0.1 CLI+技能(已成)
     service-contract)  │
    │                   │
    ▼                   │
-   M1b v0.2.1         │
+   M1b v0.3.2         │
    编织+§4.4+小库模式  │
    (refine hint 待     │
     M2b 生效)          │
    │                   │
    ▼                   │
-   M2b v0.3.1         │
+   M2b v0.3.3         │
    query+hint 两段式   │
    +拒答门禁+推广      │
    │                   │
@@ -970,28 +973,28 @@ M3b Web UI 黄了产品仍是完整 CLI（个人用户 90% 场景）；M4 不依
 | **总结默认 deferred**（Q3） | `CENHUA_SUMMARY` 默认 `deferred` | 摄取时只跑规则层 | v0.2 |
 | **成本货币化护栏 + 长任务独立预算 + 货币字段**（Q4 + R2-R3 + R3-T7 + R4-F1/F9） | `--dry-run` calls+tokens+金额；`CENHUA_MAX_COST_CNY` 与 `CENHUA_MAX_LLM_CALLS` 并联；pricing.json 在 M1a 同包交付；M2b 推广至全命令；digest/draft all-or-nothing + `CENHUA_LONGJOB_MAX_COST_CNY`；**pricing.json 加 currency 字段混合货币不折算；OpenClaw 全名匹配规则** | 次数护栏对 token 失真；预算闸需单价表；长任务中途停留断头洞察；网关全名 vs 裸 id 匹配未定义 | v0.2→v0.6 |
 | **`CENHUA_MAX_COST_CNY` 排除 add + 长任务/批量任务豁免中途执法**（R2-R1 + R3-T5 + R4-F1） | 树索引成本走 dry-run 估算 + 进度可见，不设预算拒执（免闸）；但全量记账（不免记账）；**长任务（digest/draft）与批量任务（refine --drain）豁免中途执法，仅受各自预算启动前检查管辖** | 摄取被预算中途拒绝留半成品；ledger 漏记致 cost 低报；T7 启动豁免被单命令预算/次数上限中途腰斩 | v0.2→v0.6 |
-| **关联四层降噪 + 小库模式**（Q5 + R3-T6） | IDF + nPMI + 共现地板 + 人工阀门；自动边权 ≤0.6；**小库模式自动降档**（N<200 用更松阈值 + Laplace） | 防高共现实体让全库变全连接毛球；企业阈值套个人小库（N≈30~300）会让 related 常年空转 | v0.2.1 |
+| **关联四层降噪 + 小库模式**（Q5 + R3-T6） | IDF + nPMI + 共现地板 + 人工阀门；自动边权 ≤0.6；**小库模式自动降档**（N<200 用更松阈值 + Laplace） | 防高共现实体让全库变全连接毛球；企业阈值套个人小库（N≈30~300）会让 related 常年空转 | v0.3.2 |
 | **Service 层绞杀者抽取 + 契约登记制 + 白名单**（Q6 + R2-R6 + R3-T8.3 + R4-F2/F10） | 渐进搬家：M1a 起 6 函数签名 → 每里程碑搬一块；契约登记制（**M1a 首 commit 建档**，**建档时直接采用升级后契约**：citations 含 snippet、verify_citation 三参签名、schema_version）+ `test_71` 白名单制（**只收用户命令**，`summarize` 移出由 test_70 管辖） | 不做大爆炸式重构；契约登记防每里程碑扩张破坏 API 兼容；M1a 首 commit 杜绝"先实现后登记"窗口期；F2 snippet 升级与 F10 白名单收紧 | v0.2→v0.4 |
 | **M3 拆分**（Q7） | M3 → M3a（service 完成 + digest + 任务通道 + hint 注入对抗硬化，CLI-only）+ M3b（Web UI 洞察浏览 + 局域网 API + SSE 薄适配） | 避免单里程碑捆绑多形态 | v0.4→v0.5 |
-| **M1 拆分**（R3-T3） | M1 → M1a（成本与质量基础设施，可先行）+ M1b（编织，复用 M1a 换算与 verify_citation） | 拆 M3 后 M1 自己长出 8 个子系统；M1a 纯基础设施无编织依赖可先行 | v0.2→v0.2.1 |
-| **三层 artifact 纪律 + hint-not-evidence + snippet + hint 提前进 M2b**（Q8 + R2-R5 + R3-T1 + R4-F2/F3） | tier=primary/derived-doc/internal-artifact；检索默认降级；引文穿透穿透 internal-artifact 直达 primary；图谱隔离；sources 分组；internal-artifact 正文禁作事实证据进引文但可作 hint 进 prompt；**citations 含 snippet，verify_citation 三参签名校验 snippet 归一化后存在于该页文本层**；**prompt 两段式自 M2b 起生效**（F3 主人裁决） | 防 provenance laundering；R2 全量封禁 internal-artifact 进 prompt 杀死 refine 消费者→hint-not-evidence；T1 语义修复被版本排期绕过→hint 提前进 M2b；verify_citation"页存在"同义反复→升级 snippet 匹配 | v0.3.1→v0.4 |
+| **M1 拆分**（R3-T3） | M1 → M1a（成本与质量基础设施，可先行）+ M1b（编织，复用 M1a 换算与 verify_citation） | 拆 M3 后 M1 自己长出 8 个子系统；M1a 纯基础设施无编织依赖可先行 | v0.2.0 + v0.3.2 |
+| **三层 artifact 纪律 + hint-not-evidence + snippet + hint 提前进 M2b**（Q8 + R2-R5 + R3-T1 + R4-F2/F3） | tier=primary/derived-doc/internal-artifact；检索默认降级；引文穿透穿透 internal-artifact 直达 primary；图谱隔离；sources 分组；internal-artifact 正文禁作事实证据进引文但可作 hint 进 prompt；**citations 含 snippet，verify_citation 三参签名校验 snippet 归一化后存在于该页文本层**；**prompt 两段式自 M2b 起生效**（F3 主人裁决） | 防 provenance laundering；R2 全量封禁 internal-artifact 进 prompt 杀死 refine 消费者→hint-not-evidence；T1 语义修复被版本排期绕过→hint 提前进 M2b；verify_citation"页存在"同义反复→升级 snippet 匹配 | v0.3.3→v0.4 |
 | **删除公网搜索页**（Q9） | 删除 §3.5/§6.5/M6 公网部分 | 与"本地优先、数据主权"定位冲突 | — |
-| **检索质量门禁跑 fixture 不跑活库 + fixture 冻结产物 + 门禁分层 + 引文按条目计量 + snippet 校验**（Q10 + R2-R2 + R3-T2/T4 + R4-F2/F6/F7） | M1a 交付 `cenhua bench` + 内置 fixture 冻结产物（tree index + 文本层 + 30 题，零 LLM 零网络子集）；门禁分层（CI 离线阻断 / 发版流水线全量含拒答需 key）；拒答非确定性治理（temperature=0 + 重试 + flaky 转人工）；**引文按条目计量**（全量 ≥20，阈值按条目占比 ≥95%）；存在性 100% 零容忍；`verify_citation(doc, page, snippet)` 原语进 M1a | 铁律"沉默不是证据"的直接度量；用户库是活的语料增长即假回归；fixture 不冻结则"离线可跑"破产；n=10 的 ≥95% 是掷硬币；verify_citation 只验"页存在"是同义反复当质量指标 | v0.2→v0.3.1 |
+| **检索质量门禁跑 fixture 不跑活库 + fixture 冻结产物 + 门禁分层 + 引文按条目计量 + snippet 校验**（Q10 + R2-R2 + R3-T2/T4 + R4-F2/F6/F7） | M1a 交付 `cenhua bench` + 内置 fixture 冻结产物（tree index + 文本层 + 30 题，零 LLM 零网络子集）；门禁分层（CI 离线阻断 / 发版流水线全量含拒答需 key）；拒答非确定性治理（temperature=0 + 重试 + flaky 转人工）；**引文按条目计量**（全量 ≥20，阈值按条目占比 ≥95%）；存在性 100% 零容忍；`verify_citation(doc, page, snippet)` 原语进 M1a | 铁律"沉默不是证据"的直接度量；用户库是活的语料增长即假回归；fixture 不冻结则"离线可跑"破产；n=10 的 ≥95% 是掷硬币；verify_citation 只验"页存在"是同义反复当质量指标 | v0.2→v0.3.3 |
 | **文档卫生**（Q11） | 删除 P3/P4/P5 记号，统一 v0.x；清除 `file:///` 私链 | 公开仓库文档不应含外部死链 | — |
-| **M2a/M2b 版本号分离与依赖修正**（R2-R4） | M2a → v0.3.0（网页收录，独立支线，**不含 §4.4**——R4-F5）；M2b → v0.3.1（query 延展检索，只依赖 M1b） | M2b 需语料不需"网页语料"；共版本号意味着永远捆绑发布 | v0.3.0/v0.3.1 |
-| **§4.4 唯一归属 M1b**（R4-F5） | §4.4 离线增强归 M1b 唯一归属；M2a 交付物删除重复行 | M1b 与 M2a 双份承诺，两处发布各自以为对方做了或同一功能计两次工时 | v0.2.1/v0.3.0 |
+| **M2a/M2b 版本号分离与依赖修正**（R2-R4） | M2a → v0.3.0（网页收录，独立支线，**不含 §4.4**——R4-F5）；M2b → v0.3.3（query 延展检索，只依赖 M1b） | M2b 需语料不需"网页语料"；共版本号意味着永远捆绑发布 | v0.3.0/v0.3.3 |
+| **§4.4 唯一归属 M1b**（R4-F5） | §4.4 离线增强归 M1b 唯一归属；M2a 交付物删除重复行 | M1b 与 M2a 双份承诺，两处发布各自以为对方做了或同一功能计两次工时 | v0.3.2/v0.3.0 |
 | **Playwright 默认安装 + WSL2 系统库对策**（R2-R7 + R3-T9） | requirements 默认装；setup 有 sudo 用 `--with-deps` 同装系统库，无权限警告；doctor chromium 启动自检（spawn about:blank）；自检失败自动降级静态抓取 | 否决 optional extra；默认装保证 `--url` 开箱即用；WSL2 缺 libnss3/libatk 必崩 | v0.3.0 |
 | **任务通道 + SSE 薄适配**（R2-R9） | service 契约新增 submit/job_status/job_result 任务接口；LLM 长任务统一走任务通道；M3a 落，M3b SSE 是薄适配 | CLI/Web/API 共用同一进度协议；断线重连天然安全 | v0.4→v0.5 |
 | **任务通道持久化边界**（R4 §4 强制裁决） | **M3a 开工前必须拍板**——重启后未完成任务的续跑或标废策略，不得再顺延 | R2/R3/R4 连续三轮预告未关闭 | v0.4 开工前 |
 | **M4 力导向图加发布条件**（R2-R8） | CLI 邻接表 + Mermaid 无条件；Web UI 力导向图仅 M3b 已发布时交付 | M4 不强依赖 M3b，但 Web 力导向图需 M3b 前端存在 | v0.6 |
 | **命名卫生 + 租户残肢清除 + 删 Nginx/open_id**（R2-R10 + R3-T8 + R4-F8） | `max_llm_calls` → `CENHUA_MAX_LLM_CALLS`；§2.2 标题改述；graph/draft API 加版本脚注；删 `X-Agent-Id` 行级过滤与 `user_mapping.json`，`CENHUA_API_ALLOWED_AGENTS` 并入单 token；**删 Nginx 反代叙述改 uvicorn timeout_keep_alive；日志脱敏示例去 open_id 改 token/绝对路径/PI_KEY 前缀** | env 名对齐 `CENHUA_*` 前缀；端点版本透明；与 Q1 形态收敛对齐清除租户残肢；产品无组件反代与飞书概念 | v0.2→v0.5 |
-| **hint-not-evidence 角色规则 + hint 提前进 M2b + 注入对抗硬化**（R3-T1 + R4-F3） | internal-artifact 正文禁作事实证据进引文，但可作 hint 进 prompt；prompt 两段式（hint+证据）带 `[HINT tier=internal]` 标记；hint 段禁祈使防注入；基于 hint 得出的结论必须从 primary 重新验证；**两段式自 M2b 起生效**（F3 主人裁决）；M3a 改为注入对抗硬化（指令剥离、fixture 注入对抗题至少 1/3 人工撰写、hint 二段验证成本计入 refine ROI） | R2 全量封禁 internal-artifact 进 prompt 杀死 refine 消费者；T1 语义修复被版本排期绕过（M1b 交付 refine，hint 消费却排 M3a，中间横跨 M2b 全程）→ hint 提前进 M2b；预算设置与用户可见价值同版本出现 | v0.3.1→v0.4 |
+| **hint-not-evidence 角色规则 + hint 提前进 M2b + 注入对抗硬化**（R3-T1 + R4-F3） | internal-artifact 正文禁作事实证据进引文，但可作 hint 进 prompt；prompt 两段式（hint+证据）带 `[HINT tier=internal]` 标记；hint 段禁祈使防注入；基于 hint 得出的结论必须从 primary 重新验证；**两段式自 M2b 起生效**（F3 主人裁决）；M3a 改为注入对抗硬化（指令剥离、fixture 注入对抗题至少 1/3 人工撰写、hint 二段验证成本计入 refine ROI） | R2 全量封禁 internal-artifact 进 prompt 杀死 refine 消费者；T1 语义修复被版本排期绕过（M1b 交付 refine，hint 消费却排 M3a，中间横跨 M2b 全程）→ hint 提前进 M2b；预算设置与用户可见价值同版本出现 | v0.3.3→v0.4 |
 | **digest/draft all-or-nothing + 独立长任务预算 + 豁免中途执法**（R3-T7 + R4-F1） | 启动前三闸执法顺序检查，超 `CENHUA_LONGJOB_MAX_COST_CNY`（默认 5.0）拒绝启动绝不中途停；`--force`/`--max-cost` 放行；**豁免 `CENHUA_MAX_COST_CNY`/`CENHUA_MAX_LLM_CALLS` 中途执法**；断点续跑 M4 前不做 | R1 豁免 add 的理由对 digest/draft 同样成立；T7 只修启动豁免没修中途执法，digest 跑到 ¥2.0 单命令上限先到先停仍腰斩；次数轴更糟全库扫描动辄 30+ 调用 8 次上限必拦 | v0.4→v0.6 |
 | **verify_citation 升级 snippet 页内匹配**（R4-F2） | 原语签名升级为 `verify_citation(doc, page, snippet) -> bool`——校验 snippet 归一化后确实存在于该页文本层（NFKC 归一 + 去空白/全半角折叠后正则匹配）；citations dataclass 新增 snippet 字段（≤80 字锚文本）；ask/query 响应 schema 强制 citations 带 snippet，无 snippet 在门禁计为失败；M1a 首 commit 建档时 schema_version 即含 snippet | T4 定义的校验"页存在"是同义反复——引用一个存在但内容错误的页照样通过，门禁数字好看但无意义 | v0.2→v0.6 |
-| **fixture 冻结产物 + 门禁分层 + 拒答非确定性治理 + 引文按条目计量**（R4-F6/F7） | fixture 是冻结产物（随包分发已建好的 tree index + 文本层 + 30 题，bench 不重建索引，存在性+溯源子集零 LLM 零网络）；门禁分层（CI 离线阻断 / 发版流水线全量含拒答需 key，无 key 跳过并在 release notes 标注）；拒答非确定性治理（temperature=0 + 重试 1 次 + 连续 2 版 flaky 转人工仲裁 `meta/qa/flaky.jsonl`）；引文按条目计量（全量 ≥20，阈值按条目占比 ≥95%）；存在性 100% 零容忍；失败输出逐条 diff 清单 | fixture 不冻结则 bench 建索引烧 LLM "离线可跑"破产；"离线测试绿"与"拒答门禁阻断需 key"冲突；n=10 的 ≥95% 是掷硬币阈值（1 对一错摆动 10pp） | v0.2→v0.3.1 |
+| **fixture 冻结产物 + 门禁分层 + 拒答非确定性治理 + 引文按条目计量**（R4-F6/F7） | fixture 是冻结产物（随包分发已建好的 tree index + 文本层 + 30 题，bench 不重建索引，存在性+溯源子集零 LLM 零网络）；门禁分层（CI 离线阻断 / 发版流水线全量含拒答需 key，无 key 跳过并在 release notes 标注）；拒答非确定性治理（temperature=0 + 重试 1 次 + 连续 2 版 flaky 转人工仲裁 `meta/qa/flaky.jsonl`）；引文按条目计量（全量 ≥20，阈值按条目占比 ≥95%）；存在性 100% 零容忍；失败输出逐条 diff 清单 | fixture 不冻结则 bench 建索引烧 LLM "离线可跑"破产；"离线测试绿"与"拒答门禁阻断需 key"冲突；n=10 的 ≥95% 是掷硬币阈值（1 对一错摆动 10pp） | v0.2→v0.3.3 |
 | **M3b 创造模块收敛为洞察浏览 + 草稿编辑移 M4 + 矩阵拆格 + 编织行双标**（R4-F4/F11） | M3b 创造模块收敛为洞察浏览（digest 只读）；草稿编辑/引文悬浮/版本对比三行移入 M4；§2.3 矩阵"④创造 × Web UI"拆两格（v0.5 洞察浏览 → v0.6 草稿编辑）；"②编织 × CLI/技能"恢复 ✅(半)+📋 v0.2 双标 | M3b 画 M4 才有的草稿饼（同款错误反向再犯）；纯 📋 否定了 v0.1 已交付的 vault 分库/树索引/引文溯源/向量层能力 | v0.5→v0.6 |
 | **digest 事件触发改 watch 打印提示**（R4-F10） | 删除"摄取量超阈值自动建议跑一次"；改为 `watch` 累计摄取 N 篇（默认 20）后在进度日志打印一行提示 `提示：自上次洞察以来已摄取 N 篇，可运行 cenhua digest --dry-run 估价`；无任何自动触发执行 | 产品无守护进程与通知通道，"自动建议"无载体 | v0.4 |
-| **test_71 白名单去 summarize**（R4-F10） | `test_71_cli_is_thin` 白名单只收用户命令（related/refine/cost/bench/query/digest/draft…）；`summarize` 不是用户命令（无 CLI 面）移出白名单，其 service 函数由 test_70 管辖 | `summarize` 从未在 CLI 面暴露，白名单概念错位 | v0.2.1 |
+| **test_71 白名单去 summarize**（R4-F10） | `test_71_cli_is_thin` 白名单只收用户命令（related/refine/cost/bench/query/digest/draft…）；`summarize` 不是用户命令（无 CLI 面）移出白名单，其 service 函数由 test_70 管辖 | `summarize` 从未在 CLI 面暴露，白名单概念错位 | v0.3.2 |
 
 ---
 
@@ -1007,10 +1010,10 @@ M3b Web UI 黄了产品仍是完整 CLI（个人用户 90% 场景）；M4 不依
 | vision 模型需裸 model id | ✅ 已落地 | `setup` 时 `/models` 探测；`PI_VISION_MODEL` 裸 ID |
 | 索引慢（52 页≈140s） | ✅ 已落地 | `watch` 后台 + 进度写 `logs/` + `status` 显示进行中 |
 | 写入路径 LLM 成本失控（Q3） | 📐 v0.2 对策 | 衍生分析默认免费（规则先行 + 按需精化 + 预算硬闸） |
-| 关联全连接毛球（Q5） | 📐 v0.2.1 对策 | 四层降噪 + 自动边权 ≤0.6 |
-| 关联常年空转（小库统计学坍塌，R3-T6） | 📐 v0.2.1 对策 | 小库模式自动降档，`cenhua hub` 显示档位 |
-| 引文洗白 provenance laundering（Q8 + R2-R5） | 📐 v0.3.1 对策 | 三层 artifact + 检索默认降级 + 引文穿透 + 图谱隔离 + sources 分组 |
-| refine 没有消费者 + 排期缺口（R3-T1 + R4-F3） | 📐 v0.3.1 对策 | hint-not-evidence 角色 + **prompt 两段式自 M2b 起生效**；M3a 注入对抗硬化（指令剥离、fixture 注入对抗题至少 1/3 人工撰写） |
+| 关联全连接毛球（Q5） | 📐 v0.3.2 对策 | 四层降噪 + 自动边权 ≤0.6 |
+| 关联常年空转（小库统计学坍塌，R3-T6） | 📐 v0.3.2 对策 | 小库模式自动降档，`cenhua hub` 显示档位 |
+| 引文洗白 provenance laundering（Q8 + R2-R5） | 📐 v0.3.3 对策 | 三层 artifact + 检索默认降级 + 引文穿透 + 图谱隔离 + sources 分组 |
+| refine 没有消费者 + 排期缺口（R3-T1 + R4-F3） | 📐 v0.3.3 对策 | hint-not-evidence 角色 + **prompt 两段式自 M2b 起生效**；M3a 注入对抗硬化（指令剥离、fixture 注入对抗题至少 1/3 人工撰写） |
 | 网页渲染超时/被反爬 | 📋 v0.3.0 对策 | 60s 硬上限降级静态抓取；robots.txt 遵循；同域名速率限制 |
 | Playwright 安装负担 + WSL2 缺系统库必崩（R2-R7 + R3-T9） | 📋 v0.3.0 对策 | requirements 默认装 + setup 有 sudo 用 `--with-deps` + doctor chromium 启动自检 + 自检失败自动降级静态抓取 |
 | LLM 网关挂起致 SSE 空转 | 📋 v0.5 对策 | 任务通道（M3a 落）+ 空闲 10s 心跳 + 30s 探测 + 短总兜底；透传 `response.failed` |
@@ -1080,11 +1083,11 @@ M3b Web UI 黄了产品仍是完整 CLI（个人用户 90% 场景）；M4 不依
                                               ★ 但全量记账 (T5): 写 cost-ledger.jsonl
       → 成功: restore_provenance() 台账指回原始上传
       → 自动 flatten 建文本层
-      → [v0.2.1] m_summarize 规则层:
+      → [v0.3.2] m_summarize 规则层:
           首段 + 正则实体粗提 + TF 关键词 + 标题结构
           → meta/summaries/<doc>.json (status=rule-only, tier=internal-artifact)
-      → [v0.2.1] 首次被 query/related 命中 → 入 meta/refine_queue.jsonl
-      → [v0.2.1] cenhua refine --drain 消费队列 (批量任务, 豁免中途执法, F1):
+      → [v0.3.2] 首次被 query/related 命中 → 入 meta/refine_queue.jsonl
+      → [v0.3.2] cenhua refine --drain 消费队列 (批量任务, 豁免中途执法, F1):
           三闸执法顺序: ① dry-run 估价 → ② CENHUA_REFINE_BUDGET_CNY → ③ --force 放行
           估算 token + 金额 (复用 M1a pricing.json + 换算函数, 含 currency)
           → 超预算拒 → 跑 LLM 精化
@@ -1159,7 +1162,7 @@ bench (fixture 冻结产物: 存在性+溯源题离线可跑; 拒答题需 LLM)
 
 ```
 add (建索引, 树索引成本=摄取固有, 不受 CENHUA_MAX_COST_CNY 管, 但全量记账) · ask · seek (向量层)
-query (v0.3.1 总结延展, hint 两段式) · refine (v0.2.1 精化) · digest (v0.4 洞察) · draft (v0.6 草稿)
+query (v0.3.3 总结延展, hint 两段式) · refine (v0.3.2 精化) · digest (v0.4 洞察) · draft (v0.6 草稿)
 bench --corpus (用户库 QA 拒答题)
 ```
 
@@ -1183,9 +1186,9 @@ GET  /api/v1/graph            # (v0.6 起，随 M4 交付；v0.5 返回 404 + �
 |---|---|---|---|
 | ✅ 已成 | M0 v0.1.0 | CLI + 技能 + 离线检索 + 护栏 | A + B |
 | 🚧 高 | M1a v0.2.0 | 成本与质量基础设施（pricing+currency + 换算 + ledger 全量记账 + cost + 校准 + bench fixture 冻结产物 + verify_citation 三参 snippet + service-contract 建档直接采用升级后契约） | A + B |
-| 🚧 高 | M1b v0.2.1 | 编织（deferred 总结 + refine hint 待 M2b + 四层降噪+小库模式 + §4.4 唯一归属 + related/refine/cost/bench 入 service；summarize 由 test_70 管辖） | A + B |
+| 🚧 高 | M1b v0.3.2 | 编织（deferred 总结 + refine hint 待 M2b + 四层降噪+小库模式 + §4.4 唯一归属 + related/refine/cost/bench 入 service；summarize 由 test_70 管辖） | A + B |
 | 🚧 高（并行）| M2a v0.3.0 | 网页收录（Playwright 默认装 + WSL2 系统库对策 + doctor 启动自检；**不含 §4.4**） | A + B |
-| 🚧 高 | M2b v0.3.1 | `query` 延展检索 + ★ hint 两段式 prompt 首发 + cost 推广全命令 + 拒答门禁（跑 fixture，分层+flaky 治理）+ 三层 artifact | A + B |
+| 🚧 高 | M2b v0.3.3 | `query` 延展检索 + ★ hint 两段式 prompt 首发 + cost 推广全命令 + 拒答门禁（跑 fixture，分层+flaky 治理）+ 三层 artifact | A + B |
 | 📋 重大 | M3a v0.4.0 | service 层完成 + digest（all-or-nothing+豁免中途执法）+ 任务通道（**持久化边界开工前必拍板**）+ hint 注入对抗硬化 + 三层 artifact 闭环（CLI-only） | A + B |
 | 📋 重大 | M3b v0.5.0 | 本地 Web UI（**洞察浏览，草稿编辑移 M4**）+ 局域网 API（单 token，清除租户残肢）+ SSE 薄适配 | **C** + 局域网 API |
 | 📋 高 | M4 v0.6.0 | 知识图谱 + 主题创作 draft（all-or-nothing + 独立预算 + 豁免中途执法 + draft --verify 包装升级后 verify_citation）+ ★ Web 草稿编辑三件套（从 M3b 移入） | A + B + C |
@@ -1204,7 +1207,7 @@ hint 注入对抗硬化点，M3b 才让 Web UI 名副其实是薄包装（SSE �
 - [x] roadmap.md 按三轮评审 T1-T9 修订（三修完成）
 - [x] roadmap.md 按四轮评审 F1-F11 修订（四修完成，本文即完成）
 - [ ] design.md：原则 10 增补"全量记账仅免闸 + 长任务/批量任务豁免中途执法"（T5+F1）；
-  原则 11 增补 hint-not-evidence 完整规则（F2 snippet 强制、F3 生效版本 v0.3.1、
+  原则 11 增补 hint-not-evidence 完整规则（F2 snippet 强制、F3 生效版本 v0.3.3、
   执法豁免边界）
 - [ ] `docs/service-contract.md` 建档（**M1a 首 commit**，T8.3；**建档时直接采用升级后
   契约**：citations 含 snippet、verify_citation 三参签名、schema_version——F2）

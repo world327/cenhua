@@ -27,7 +27,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENGINE = os.path.join(HERE, "engine")
 SKILL_DIR = os.path.dirname(HERE)          # <skill>/scripts -> <skill>
-VERSION = "0.3.0"
+VERSION = "0.3.2"
 
 # ---------------------------------------------------------- storage root ----
 # Where vaults (documents, indexes, archived originals) live is a USER
@@ -128,6 +128,7 @@ EXTS = {
     ".pdf", ".md", ".markdown", ".txt", ".html", ".htm", ".csv",
     ".docx", ".pptx", ".xlsx", ".xls",
     ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif",
+    ".eml", ".msg",               # 邮件（M1b §4.4，m_mail 展开后进引擎）
 }
 
 PAGE_RE = re.compile(r"^=== (?:PAGE (\d+)|第(\d+)页) ===$")
@@ -550,14 +551,39 @@ def is_supported(path):
     return os.path.splitext(path)[1].lower() in EXTS
 
 
-def pending(inbox):
+def pending(inbox, min_age=0.0):
     """Files waiting in an inbox. Hidden entries (.processed/.failed staging
-    dirs and dotfiles) never count as pending work."""
+    dirs and dotfiles) never count as pending work.
+
+    Ordered by creation/modification time (oldest first), NOT by name: an
+    inbox filled by chat/IM tools names files by content hash or sender, so
+    alphabetical order shuffles the real arrival sequence and answers can be
+    retrieved in the wrong order (`create_time` sort, M1b §4.4).
+    `min_age` skips files younger than N seconds (partially-copied guard).
+    """
     if not os.path.isdir(inbox):
         return []
-    return sorted(os.path.join(inbox, f) for f in os.listdir(inbox)
-                  if not f.startswith(".")
-                  and os.path.isfile(os.path.join(inbox, f)))
+    out = []
+    for f in os.listdir(inbox):
+        if f.startswith("."):
+            continue
+        p = os.path.join(inbox, f)
+        if not os.path.isfile(p):
+            continue
+        if min_age > 0:
+            try:
+                age = time.time() - os.path.getmtime(p)
+            except OSError:
+                continue
+            if age < min_age:
+                continue
+        try:
+            st = os.stat(p)
+            key = getattr(st, "st_ctime", st.st_mtime)
+        except OSError:
+            key = 0
+        out.append((key, f, p))
+    return [p for _, _, p in sorted(out)]
 
 
 def human_size(n):

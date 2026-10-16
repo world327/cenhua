@@ -65,9 +65,12 @@ cenhua ask --doc contract "终止罚则是什么"
 VAULTS    init · vaults · use · status · doctor · rm · config · sources
 INTAKE    add <files|dir|--inbox> · add --url <url> [--url ...] ·
           add --url-file <path> [--no-render] · watch [--interval N] [--once] [--urls]
+          （.eml/.msg 邮件自动展开附件，v0.3.2 起）
 RETRIEVE  find <terms> [-d doc] [-i] [-r] · read <doc> [-p N] [-g re] · list
 DEEP READ ask [--doc kw | --all] "q" [--limit N] [--dry-run]   (成本护栏)
 SEMANTIC  index build|status · seek "question"     (可选向量层)
+WEAVING   related <doc> · link <A> <B> · link --ban <E1> <E2> · hub ·
+          weave rebuild · refine [--all --dry-run | --drain [--force]]
 COST      cost [--month YYYY-MM]     成本月报，按命令分组，摄取成本单列首位
 QUALITY   bench [--corpus]           质量门禁：fixture（阻断）/ 用户库（报告）
 ```
@@ -180,6 +183,51 @@ cenhua watch --urls
 - **大小上限**：单页 5 MB，超出截断到标签边界并提示（可用
   `CENHUA_MAX_PAGE_BYTES` 调整；注意 MB 级 HTML 转 PDF 是分钟级，树索引慢）。
 - **失败隔离**：抓取/摄取失败进 `inbox/.failed/`，不影响其他 URL 与本地文档摄取。
+
+### 4.3a 邮件收录（v0.3.2 · M1b 起）
+
+`.eml` / `.msg`（Outlook）直接 `add` 或丢 inbox，自动**展开**后进标准闭环：
+
+- 正文生成一份 Markdown（主题/发件人/日期/收件人抬头 + 正文 + 附件清单）；
+- 附件逐个还原成文件并各自独立摄取（仅支持的格式；不支持的类型在附件
+  清单留痕，不静默丢弃）；
+- 单个附件失败进 `.failed/` 不拖垮整封邮件；台账指回**邮件原件**，
+  `cenhua sources` 溯源到 .eml/.msg 本体；
+- `.msg` 解析依赖 olefile（`cenhua setup` 会装；缺失时 .eml 不受影响）。
+
+`cenhua watch` 强化（同版本）：inbox 文件按**到达时间**（创建时间）排序摄取
+——IM 工具落盘的文件名是乱序的，按名字排序会乱序；小于一个轮询间隔的新文件
+先跳过（防止读到写了一半的文件）。
+
+### 4.3b 知识编织（v0.3.2 · M1b 起，全程离线零 LLM）
+
+孤立文档变关联网络。摄取后自动生成**规则层粗总结**（首段/实体/关键词/标题，
+零 LLM）与共现**关联边**（四层降噪，纯统计）；LLM 精化按需、按预算消费。
+
+```bash
+cenhua related 合同A              # 关联文档 + 每条边的证据（共现实体/页码/nPMI）
+cenhua link 合同A 付款单B         # 人工声明关联（权重 0.8，自动边上限 0.6）
+cenhua link --ban 公司名 常见词   # 永久压制某实体对（重建也不复活）
+cenhua hub                        # 枢纽实体复核 + 当前档位与 N
+cenhua weave rebuild              # 手动重建关联（摄取时已自动做）
+cenhua refine --all --dry-run     # 精化队列估价（永远免费）
+CENHUA_REFINE_BUDGET_CNY=5 cenhua refine --drain   # 按预算消费
+```
+
+要点：
+
+- **空结果不沉默**：`related` 无显著关联时明示"无显著关联（正常）"——
+  关联为空本身是信息。
+- **小库模式自动降档**（个人库 N<200 更松阈值 + Laplace 平滑），
+  `cenhua hub` 显示当前档位；阈值 `CENHUA_SMALL_CORPUS_N` 可调。
+- **三闸成本顺序**：① `--dry-run` 估价永远可用 → ② 预算硬闸
+  `CENHUA_REFINE_BUDGET_CNY`（默认 0 = 拒绝，fail-closed；USD 报价按
+  保守汇率折 CNY 比较）→ ③ `--force` 显式放行。`--drain` 启动前一次性
+  过闸，中途不再逐篇执法；每篇全量记账（`cenhua cost` 可见 `cmd=refine`）。
+- **命中入队**：文档被 `ask`/`related` 命中即进 `meta/refine_queue.jsonl`；
+  LLM 精化失败留在队列可重试；JSON 解析失败走规则首段兜底（不白花钱）。
+- hint 消费（精化摘要进 prompt）**自 v0.3.3 起生效**；现在设预算即知
+  消费者版本。
 
 ### 4.4 检索
 

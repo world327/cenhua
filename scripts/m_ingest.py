@@ -20,7 +20,8 @@ import re
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))            # scripts/
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # ROOT (cenhua_service/)
 import m_lib as L  # noqa: E402
 import m_ocr  # noqa: E402
 
@@ -119,6 +120,50 @@ def ingest_one(vault, path, quiet=False):
         stage(path, vault.processed)
         return "dupe"
 
+    # 邮件（M1b §4.4）：展开成正文 Markdown + 附件部件，逐个走同一闭环。
+    # 单部件失败进 .failed/ 不拖垮整封；台账经 restore_provenance 指回
+    # 邮件原件（sources/ 归档 .eml/.msg 本体）。
+    import m_mail
+    if m_mail.is_mail(path):
+        try:
+            parts, mail_fails = m_mail.expand(vault, path, digest)
+        except Exception as e:
+            dest = stage(path, vault.failed, suffix="_failed")
+            where = f" kept for retry at {dest}" if in_inbox else ""
+            L.err(f"x FAILED {name}: mail expand: {e}{where}")
+            return "failed"
+        if not quiet:
+            L.say(f"! {name}: mail -> {len(parts)} part(s)"
+                  + (f", {len(mail_fails)} attachment(s) logged only"
+                     if mail_fails else ""))
+        counts = {"added": 0, "dupe": 0, "failed": 0}
+        for part in parts:
+            r = ingest_one(vault, part["path"], quiet=quiet)
+            if r in ("added", "dupe"):
+                # 台账指回邮件原件：按部件自身 sha1 查 dedupe 拿 doc_id
+                pd = L.sha1(part["path"])
+                did = d.get(pd, {}).get("doc_id", "")
+                if did:
+                    restore_provenance(vault, did, path, part["name"])
+            else:
+                # 部件本体在 meta/mail/ 展开目录（不在 inbox，闭环不会
+                # 自动暂存）：手动移进 .failed/，失败隔离、可查可重试
+                try:
+                    L.move_into(part["path"], vault.failed,
+                                suffix=f"_{os.path.splitext(name)[0]}_failed")
+                except OSError:
+                    pass
+            counts[r] += 1
+        if counts["added"] or counts["dupe"]:
+            stage(path, vault.processed)
+        else:
+            stage(path, vault.failed, suffix="_failed")
+        if not quiet:
+            L.say(f"~ {name}: +{counts['added']} new, = {counts['dupe']} dupes,"
+                  f" x{counts['failed']} failed")
+        return ("added" if counts["added"]
+                else "dupe" if counts["dupe"] else "failed")
+
     t0 = time.time()
     if not quiet:
         L.say(f"> ingesting {name} ... (tree index: minutes for long PDFs; "
@@ -163,6 +208,36 @@ def ingest_one(vault, path, quiet=False):
     return "failed"
 
 
+def _rule_summaries(vault):
+    """摄取后补规则先行总结（M1b §5.3，零 LLM、离线、秒级）。
+    失败只 warn，绝不拖垮摄取闭环。"""
+    try:
+        from cenhua_service import summaries as S
+        docs = L.store_docs(vault)
+
+        def read_text(doc_id):
+            p = os.path.join(vault.textdir, doc_id + ".txt")
+            try:
+                with open(p, encoding="utf-8", errors="ignore") as f:
+                    return f.read()
+            except OSError:
+                return None
+        r = S.ensure_all(vault, docs, read_text)
+        if r["rule-only"]:
+            L.say(f"~ rule summaries: +{r['rule-only']} "
+                  f"(zero-LLM; refine: cenhua refine --all --dry-run)")
+        # 共现关联同步重建（M1b §5.4，零 LLM；失败只 warn）
+        try:
+            from cenhua_service import relations as REL
+            rel = REL.build(vault)
+            L.say(f"~ relations: {rel['edges']} edge(s), {rel['hubs']} hub(s), "
+                  f"tier={rel['tier']} (cenhua related <doc>)")
+        except Exception as e2:
+            L.say(f"~ relations skipped: {e2}")
+    except Exception as e:
+        L.say(f"~ rule summaries skipped: {e}")
+
+
 def add(vault, paths, use_inbox=False, flatten=True):
     """Explicit add of files/dirs, or drain the inbox with --inbox."""
     queue = []
@@ -194,6 +269,7 @@ def add(vault, paths, use_inbox=False, flatten=True):
         L.say(f"~ text layer: {out.strip().splitlines()[-1] if out.strip() else 'done'}")
         if rc != 0:
             L.err("! flatten reported a problem — run: cenhua flatten")
+        _rule_summaries(vault)
     L.say(f"\ndone: +{counts['added']} new, = {counts['dupe']} dupes, "
           f"x{counts['failed']} failed")
     if counts["added"]:
@@ -205,11 +281,13 @@ def add(vault, paths, use_inbox=False, flatten=True):
 def watch(vault, interval=5.0, once=False, idle_rounds=10):
     """Poll the inbox; ingest files whose size has been stable for one round.
     A partially-copied large file therefore never gets grabbed mid-write.
+    Files are taken in arrival order (creation time), and files younger than
+    one interval are skipped outright (age guard, M1b §4.4).
     `--once` drains and exits; otherwise runs until interrupted (or --rounds)."""
     L.say(f"watching {vault.inbox} every {interval:.0f}s (Ctrl-C to stop)")
     stable, rounds, idle = {}, 0, 0
     while True:
-        files = L.pending(vault.inbox)
+        files = L.pending(vault.inbox, min_age=0 if once else interval)
         ready = []
         for f in files:
             try:
@@ -234,6 +312,7 @@ def watch(vault, interval=5.0, once=False, idle_rounds=10):
                     n += 1
             if n:
                 L.run_engine("pi_flatten.py", [], vault, capture=True)
+                _rule_summaries(vault)
                 L.say(f"+ {n} document(s) indexed and searchable")
         else:
             idle += 1

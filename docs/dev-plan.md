@@ -25,13 +25,13 @@ M0 v0.1 CLI+技能(已成)
     service-contract)  │
    │                   │
    ▼                   │
-   M1b v0.2.1         │
+   M1b v0.3.2         │
    编织+§4.4+小库模式  │
    (refine hint 待     │
     M2b 生效)          │
    │                   │
    ▼                   │
-   M2b v0.3.1         │
+   M2b v0.3.3         │
    query+hint 两段式   │
    +拒答门禁+推广      │
    │                   │
@@ -234,7 +234,7 @@ flaky → 自动转人工仲裁（进 `meta/qa/flaky.jsonl`），不连续阻断
 
 ---
 
-## 3. M1b · v0.2.1 · 编织
+## 3. M1b · v0.3.2 · 编织
 
 ### 3.1 目标与范围
 
@@ -266,7 +266,7 @@ cost/bench 入 service。
 | 13 | service 层搬迁：`related` / `refine` / `cost` / `bench` 入 service（**`summarize` 不是用户命令移出 test_71 白名单，由 test_70 管辖——F10**）；CLI 改薄包装 | 1.5 天 | 5,12, M1a | service 函数签名登记入 service-contract.md；CLI ≤10 行 |
 | 14 | 防回潮测试：`test_71_cli_is_thin` 白名单首批（M1b: `related`/`refine`/`cost`/`bench`）；`test_70_service_no_print` 全量 | 0.5 天 | 13 | test_70/71 全绿；白名单仅含用户命令 |
 | 15 | 单测套件增量：四层降噪/小库模式/精化队列/related 全覆盖 | 1.5 天 | 7-12 | 覆盖率 ≥70%；小库模式降档单测 |
-| 16 | 文档同步：user-guide.md 补 `related`/`refine`/`hub` 手册；pitfalls.md 回写新坑；architecture.md 同步；design.md 原则 11 增补 hint-not-evidence（**hint 消费自 v0.3.1 起生效——F3**） | 1 天 | 全 | 四份文档同步 |
+| 16 | 文档同步：user-guide.md 补 `related`/`refine`/`hub` 手册；pitfalls.md 回写新坑；architecture.md 同步；design.md 原则 11 增补 hint-not-evidence（**hint 消费自 v0.3.3 起生效——F3**） | 1 天 | 全 | 四份文档同步 |
 
 **M1b 任务粒度合计**：约 16 任务日；建议节奏 4-5 周完工（含 20% 缓冲）。
 
@@ -286,7 +286,7 @@ cost/bench 入 service。
 | 风险 | 对策 |
 |---|---|
 | 小库模式阈值在真实个人库（N=30~50）下仍空转 | M1b 开工前用真实合同库做 dry-run；阈值可配（`CENHUA_SMALL_CORPUS_N` 默认 200） |
-| refine 队列在 M2b 之前没有消费者（T1 排期缺口，F3 已裁决 hint 提前进 M2b） | M1b 文档明示"hint 消费自 v0.3.1 起生效"；用户设预算即知消费者版本 |
+| refine 队列在 M2b 之前没有消费者（T1 排期缺口，F3 已裁决 hint 提前进 M2b） | M1b 文档明示"hint 消费自 v0.3.3 起生效"；用户设预算即知消费者版本 |
 | 精化 LLM 输出格式不稳定（ summaries 字段缺失） | summaries dataclass 在 service-contract.md 登记；读侧容忍旧版本（schema_version） |
 | 邮件 eml/msg 附件嵌套复杂 | 附件展开走既有 `m_lib.EXTS` 注册；失败进 `inbox/.failed/` 不阻塞 |
 
@@ -349,7 +349,7 @@ cost/bench 入 service。
 
 ---
 
-## 5. M2b · v0.3.1 · 延展检索 + hint 两段式 prompt 首发
+## 5. M2b · v0.3.3 · 延展检索 + hint 两段式 prompt 首发
 
 ### 5.1 目标与范围
 
@@ -359,7 +359,7 @@ cost/bench 入 service。
 
 ### 5.2 前置依赖
 
-- M1b v0.2.1 ✅（关联层 + summaries）
+- M1b v0.3.2 ✅（关联层 + summaries）
 - **不依赖 M2a**（R2-R4；本地合同库足以验收 query 四段输出）
 
 ### 5.3 任务分解
@@ -377,7 +377,7 @@ cost/bench 入 service。
 | 9 | service 层搬迁：`query` 入 service（进入 `test_71` 白名单：M2b = `query`） | 1 天 | 1,5 | service 函数签名登记；CLI ≤10 行 |
 | 10 | 拒答门禁生效：跑 fixture 拒答题（拒答正确率 ≥90% 加入阻断集）；发版流水线需 API key；无 key 跳过并在 release notes 标注（F6.2） | 1 天 | M1a | 拒答门禁触发；无 key 跳过路径正确 |
 | 11 | 单测套件增量：query 四段/hint 两段式/snippet 强制/三层 artifact 全覆盖 | 1.5 天 | 1-8 | 覆盖率 ≥70%；run_tests.sh 全绿 |
-| 12 | 文档同步：user-guide.md 补 `cenhua query` 手册；pitfalls.md 回写；architecture.md 补 hint 两段式 prompt 架构（**M2b 起**，F3）；design.md 原则 11 hint-not-evidence 完整规则（snippet 强制、生效版本 v0.3.1、执法豁免边界） | 1 天 | 全 | 四份文档同步 |
+| 12 | 文档同步：user-guide.md 补 `cenhua query` 手册；pitfalls.md 回写；architecture.md 补 hint 两段式 prompt 架构（**M2b 起**，F3）；design.md 原则 11 hint-not-evidence 完整规则（snippet 强制、生效版本 v0.3.3、执法豁免边界） | 1 天 | 全 | 四份文档同步 |
 
 **M2b 任务粒度合计**：约 13 任务日；建议节奏 3-4 周完工（含 20% 缓冲）。
 
@@ -416,7 +416,7 @@ cost/bench 入 service。
 
 ### 6.2 前置依赖
 
-- M2b v0.3.1 ✅
+- M2b v0.3.3 ✅
 - **★ 任务通道持久化边界必须开工前拍板**（R2/R3/R4 连续三轮预告，不得再顺延——
   R4 §4 强制裁决）
 
@@ -664,7 +664,7 @@ cost/bench 入 service。
 
 ### 10.2 版本号规范
 
-- 主版本号 `v0.X.Y`：X 里程碑编号，Y 子版本（M1a=v0.2.0 / M1b=v0.2.1 / M2a=v0.3.0 / M2b=v0.3.1 / M3a=v0.4.0 / M3b=v0.5.0 / M4=v0.6.0）
+- 主版本号 `v0.X.Y`：X 里程碑编号，Y 子版本（M1a=v0.2.0 / M2a=v0.3.0 / M1b=v0.3.2 / M2b=v0.3.3 / M3a=v0.4.0 / M3b=v0.5.0 / M4=v0.6.0；五轮修订：M1b 实际交付晚于 M2a，版本号按交付顺序排为 v0.3.2，M2b 顺延 v0.3.3）
 - 预发布：`v0.X.Y-rc.N`
 - 紧急修复：`v0.X.Y+1`（仅 bugfix，不新增功能）
 
@@ -700,10 +700,10 @@ cost/bench 入 service。
 | 里程碑 | 版本 | 状态 | 任务粒度 | 建议节奏 |
 |---|---|---|---|---|
 | M0 | v0.1.0 | ✅ 已发布 | — | — |
-| M1a | v0.2.0 | 🚧 开发中（成本+质量基建已落地） | 16.5 任务日 | 4-5 周 |
-| M1b | v0.2.1 | 📋 规划 | 16 任务日 | 4-5 周 |
-| M2a | v0.3.0 | 🚧 开发中（代码+测试+文档已落地，全套件全绿，待评审） | 12.5 任务日 | 3-4 周 |
-| M2b | v0.3.1 | 📋 规划 | 13 任务日 | 3-4 周 |
+| M1a | v0.2.0 | ✅ 已交付（成本+质量基建，19 测试全绿） | 16.5 任务日 | 4-5 周 |
+| M1b | v0.3.2 | 🚧 开发中（编织层代码+28 测试已落地，待收尾） | 16 任务日 | 4-5 周 |
+| M2a | v0.3.0 | ✅ 已交付（代码+测试+文档已落地，全套件全绿） | 12.5 任务日 | 3-4 周 |
+| M2b | v0.3.3 | 📋 规划 | 13 任务日 | 3-4 周 |
 | M3a | v0.4.0 | 📋 规划（工程难度最高点） | 20 任务日 | 5-6 周 |
 | M3b | v0.5.0 | 📋 规划 | 17 任务日 | 4-5 周 |
 | M4 | v0.6.0 | 📋 规划（范围最广） | 25.5 任务日 | 6-7 周 |

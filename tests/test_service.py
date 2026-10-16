@@ -94,13 +94,17 @@ class ServiceTest(unittest.TestCase):
                         self.fail(f"{fn} must not call sys.exit()")
 
     def test_71_cli_is_thin(self):
-        """白名单命令（M1a: cost/bench）CLI 薄包装，函数体 <=10 行。"""
+        """白名单命令（M1a: cost/bench；M1b: refine/related）CLI 薄包装，
+        函数体 <=10 行。"""
         import m_cost
-        for name in ("cost_cmd", "bench_cmd"):
-            fn = getattr(m_cost, name)
-            src_lines = _func_body(fn)
-            self.assertLessEqual(len(src_lines), 10,
-                                 f"{name} CLI must be thin (<=10 lines)")
+        import m_weave
+        for mod, names in ((m_cost, ("cost_cmd", "bench_cmd")),
+                           (m_weave, ("refine_cmd", "related_cmd"))):
+            for name in names:
+                fn = getattr(mod, name)
+                src_lines = _func_body(fn)
+                self.assertLessEqual(len(src_lines), 10,
+                                     f"{name} CLI must be thin (<=10 lines)")
 
     # ------------------------------------------------------- pricing ----
     def test_80_pricing_match_full_name(self):
