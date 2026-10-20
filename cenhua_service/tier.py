@@ -113,6 +113,50 @@ def evidence_eligible(vault, doc_id):
     return doc_tier(vault, doc_id) == TIER_PRIMARY
 
 
+def sources_lines(vault, kw=""):
+    """`cenhua sources` 三层分组渲染（M3a 任务 11）：来源可核查 + tier 归属。
+
+    分组顺序 primary -> derived-doc -> internal-artifact；
+    derived-doc 组每篇追加 derived_from 链（台账字段口径，不递归）。
+    字段口径与 m_vault.sources 对齐（uploaded/from/archived/text layer）。
+    """
+    import m_lib as _L  # 延迟导入：与 CLI 层共用 resolve_docs 口径
+    docs = _L.store_docs(vault)
+    targets = _L.resolve_docs(vault, kw) or [
+        (d, x.get("name", d)) for d, x in docs.items()]
+    if not targets:
+        return ["(no documents yet)"]
+    led = ledger(vault)
+    groups = {TIER_PRIMARY: [], TIER_DERIVED: [], TIER_INTERNAL: []}
+    for doc_id, name in targets:
+        groups[doc_tier(vault, doc_id, led.get(doc_id) or {})].append(
+            (doc_id, name))
+    lines = []
+    for tier in (TIER_PRIMARY, TIER_DERIVED, TIER_INTERNAL):
+        items = groups[tier]
+        if not items:
+            continue
+        lines.append("")
+        lines.append("--- %s (%d) ---" % (tier, len(items)))
+        for doc_id, name in items:
+            rec = led.get(doc_id) or {}
+            stored = rec.get("stored_as", "")
+            lines.append("%s  (%s)" % (name, doc_id))
+            lines.append("  uploaded  : %s  sha1 %s" % (
+                rec.get("ts", "?"), (rec.get("sha1", "?") or "?")[:16]))
+            lines.append("  from      : %s" % rec.get("source", "?"))
+            lines.append("  archived  : %s" % (
+                stored if stored and os.path.exists(stored)
+                else "MISSING — verify from the text layer"))
+            lines.append("  text layer: %s" % os.path.join(
+                vault.textdir, doc_id + ".txt"))
+            if tier == TIER_DERIVED:
+                srcs = rec.get("derived_from") or []
+                lines.append("  derived   : %s" % (", ".join(srcs)
+                                                   if srcs else "(无台账链)"))
+    return lines
+
+
 def record_tier(vault, doc_id):
     """摄取后补写台账 tier 字段（引擎字节级不动，test_61）。
 

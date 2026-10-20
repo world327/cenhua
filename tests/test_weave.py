@@ -212,6 +212,34 @@ class RefineTest(unittest.TestCase):
         self.assertIn("dry run", text)
         self.assertIn("estimate", text)
 
+    # ------------------------------------------------------------ ROI 账 ----
+    def test_19_roi_lines_visible(self):
+        """M3a 任务 13：hint 二段验证成本计入 refine ROI 账（可见）。"""
+        from cenhua_service import cost as C
+        C.ledger_append(self.vault, {
+            "cmd": "refine", "doc": "d1.pdf", "calls": 1,
+            "tokens_in": 500, "tokens_out": 80,
+            "est_cost": 0.02, "currency": "CNY", "priced": True})
+        C.ledger_append(self.vault, {
+            "cmd": "query", "doc": "违约金怎么算", "calls": 2,
+            "tokens_in": 3000, "tokens_out": 600,
+            "est_cost": 0.05, "currency": "CNY", "priced": True,
+            "hint_docs": 2, "hint_dropped": 1})
+        lines = self.R.roi_lines(self.vault)
+        text = "\n".join(lines)
+        self.assertIn("[ROI]", text)
+        self.assertIn("refine 生产", text)
+        self.assertIn("query 验证", text)
+        self.assertIn("1 rounds", text)
+        self.assertIn("2 doc-round(s)", text)
+        self.assertIn("1 祈使句已剔除", text)
+
+    def test_20_status_lines_include_roi(self):
+        """无参 `cenhua refine` 状态视图带 ROI 账（任务 13 验收：可见）。"""
+        text = "\n".join(self.R.status_lines(self.vault))
+        self.assertIn("[ROI]", text)
+        self.assertIn("usage", text)
+
     # ------------------------------------------------------------ drain ----
     def test_15_drain_llm_stubbed(self):
         import unittest.mock as mock
@@ -427,6 +455,73 @@ class RelationsTest(unittest.TestCase):
         queued = {i["doc_id"] for i in R.pending(self.vault)}
         self.assertIn("doc1", queued)
         self.assertTrue(queued & {"doc2", "doc3"})     # 对端也入队
+
+
+class GraphIsolationTest(unittest.TestCase):
+    """M3a 任务 12：图谱隔离——derived-doc / internal-artifact 不建边。
+
+    两层排除：台账显式 tier 字段（回流文章名称"洞察_weekly_…"不命中
+    DERIVED_RE，只能靠 tier 挡）+ 名称 DERIVED_RE 兜底（tier 未回填的
+    手动衍生文件，如"周报_…"）。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from cenhua_service import relations as REL
+        cls.REL = REL
+
+    def _vault(self, tier_overrides=None):
+        v = _RelVault(tempfile.mkdtemp(prefix="cenhua-iso-"))
+        v.put("doc1", "合同A.pdf",
+              "=== PAGE 1 ===\nAlphaCorp 与 BetaLabs 签订合同，金额 128万元。\n"
+              "日期 2026-01-05。\n")
+        v.put("doc2", "付款B.pdf",
+              "=== PAGE 1 ===\nAlphaCorp 向 BetaLabs 付款 128万元，"
+              "日期 2026-01-06。\n")
+        v.put("doc3", "洞察_weekly_V1_2026-10-12.md",
+              "=== PAGE 1 ===\nAlphaCorp 与 BetaLabs 签订合同，金额 128万元。\n")
+        v.put("doc4", "周报_2026W41.md",
+              "=== PAGE 1 ===\nAlphaCorp 向 BetaLabs 付款 128万元。\n")
+        for doc_id, t in (tier_overrides or {}).items():
+            led_path = os.path.join(v.store, "ingest_manifest.json")
+            led = json.load(open(led_path))
+            led[doc_id]["tier"] = t
+            with open(led_path, "w", encoding="utf-8") as f:
+                json.dump(led, f)
+        return v
+
+    def test_29_tier_field_excluded(self):
+        v = self._vault({"doc3": "derived-doc"})
+        ids = [d for d, _ in self.REL.primary_docs(v)]
+        self.assertNotIn("doc3", ids)             # 台账 tier 排除
+        self.assertNotIn("doc4", ids)             # 周报_ 名称兜底排除
+        self.assertEqual(sorted(ids), ["doc1", "doc2"])
+
+    def test_30_name_fallback_without_tier(self):
+        v = self._vault()                         # 无 tier 字段
+        ids = [d for d, _ in self.REL.primary_docs(v)]
+        self.assertIn("doc3", ids)                # 名称不命中 -> 保守视作 primary
+        self.assertNotIn("doc4", ids)             # 名称兜底
+        r = self.REL.build(v)
+        self.assertEqual(r["docs"], 3)
+        for e in self.REL.load_relations(v):
+            self.assertNotIn("doc4", (e["from"], e["to"]))
+
+    def test_31_build_shrinks_on_tier(self):
+        v = self._vault()
+        self.assertEqual(self.REL.build(v)["docs"], 3)
+        self._vault_patch_tier(v, "doc3", "internal-artifact")
+        r = self.REL.build(v)
+        self.assertEqual(r["docs"], 2)            # doc3 也被 tier 挡掉
+        for e in self.REL.load_relations(v):
+            self.assertNotIn("doc3", (e["from"], e["to"]))
+
+    def _vault_patch_tier(self, v, doc_id, t):
+        led_path = os.path.join(v.store, "ingest_manifest.json")
+        led = json.load(open(led_path))
+        led[doc_id]["tier"] = t
+        with open(led_path, "w", encoding="utf-8") as f:
+            json.dump(led, f)
 
 
 if __name__ == "__main__":

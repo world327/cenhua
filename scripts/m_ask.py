@@ -30,7 +30,12 @@ def charged(vault):
     return (L.read_json(cost_file(vault), {}) or {}).get("total", 0)
 
 
-def record(vault, n, mode, docs):
+def record(vault, n, mode, docs, est=None):
+    """深读成功后的本地记账：llm_calls.json total + runs + cost-ledger。
+
+    est 为 core.ask_estimate 的估价 dict（含 est_cost/currency/priced），
+    None 时按未定价 0 元占位（保持旧行为兜底）。
+    """
     path = cost_file(vault)
     data = L.read_json(path, {}) or {}
     data["total"] = data.get("total", 0) + n
@@ -40,112 +45,110 @@ def record(vault, n, mode, docs):
     os.makedirs(vault.meta, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=1)
-    # 全量记账（T5）：写 cost-ledger.jsonl
+    # 全量记账（T5）：写 cost-ledger.jsonl（M3a：est 用真实估价）
     try:
         from cenhua_service import cost as C
-        model = L.build_env(vault).get("PI_MODEL", "")
-        tokens_in = C.estimate_tokens("")  # 占位；真实 token 由引擎返回
+        e = est or {}
         C.ledger_append(vault, {
             "cmd": "ask", "doc": ",".join(docs)[:200], "calls": n,
-            "tokens_in": 0, "tokens_out": 0, "est_cost": 0.0,
-            "currency": "CNY", "priced": False,
+            "tokens_in": int(e.get("tokens_in", 0) or 0),
+            "tokens_out": int(e.get("tokens_out", 0) or 0),
+            "est_cost": float(e.get("est_cost", 0.0) or 0.0),
+            "currency": e.get("currency", "CNY"),
+            "priced": bool(e.get("priced", False)),
         })
     except Exception:
         pass
 
 
+def _confirm_gate(vault, n, yes):
+    """三闸通过后的人工确认（CLI 层职责：tty/stdin 假设不进 service）。"""
+    if n <= 3 or yes:
+        return True
+    if not sys.stdin.isatty():
+        L.die(f"{n} LLM calls pending and stdin is not a tty — "
+              f"pass --yes to confirm", code=4)
+    if L.ask_user(f"spend ~{n} LLM calls? type 'yes' to proceed") != "yes":
+        L.say("aborted (nothing spent)")
+        return False
+    return True
+
+
 def ask(vault, question, doc=None, all_docs=False, limit=10, workers=None,
         dry_run=False, yes=False, force=False):
+    """`cenhua ask` CLI：估价/三闸/确认在 CLI 层，引擎执行走任务通道（M3a）。
+
+    前置段与闸门委托 core.ask_estimate / service 纯函数（单一事实源）；
+    引擎调用经 channel_job 进 jobs 通道，run_cli 增量打印 + 进度/心跳。
+    """
+    from cenhua_service import core as C
+    from cenhua_service import cost as CC
+    from cenhua_service import jobs as J
+
     if not question:
-        L.die('usage: cenhua ask --doc <kw> "your question"  |  cenhua ask --all "..."')
+        L.die('usage: cenhua ask --doc <kw> "your question"  |  '
+              'cenhua ask --all "..."')
     if not doc and not all_docs:
         L.die("choose a scope: --doc <name-keyword[,kw2]> or --all "
               "(scoping is the cost control — start narrow)")
-
-    env = L.build_env(vault)
-    targets = (L.resolve_docs(vault, None, limit=limit) if all_docs
-               else L.resolve_docs(vault, doc))
-    if not targets:
-        L.die(f"no document matches (selector={doc or '<all>'}; see: cenhua list)")
-    n = len(targets)
+    pre = C.ask_estimate(vault, question, doc=doc, all_docs=all_docs,
+                         limit=limit)
+    if pre.rc:
+        for line in pre.lines:
+            L.err(line)
+        L.die(pre.error or "ask: bad request")
+    est = pre.cost
+    n = est.get("calls", 0)
     cap = vault.max_llm_calls()
-    have, missing, _ = L.text_status(vault)
-    stale = [d for d, _ in targets if d not in have]
-
-    L.say(f"[cost] scope      : {'whole vault' if all_docs else '--doc ' + doc}")
-    L.say(f"[cost] documents  : {n}")
-    for d, name in targets[:20]:
-        L.say(f"           - {name}")
-    if n > 20:
-        L.say(f"           ... {n - 20} more")
-    L.say(f"[cost] LLM calls  : ~{n} (1 per doc)   charged so far: {charged(vault)}")
-    L.say(f"[cost] gateway    : {env.get('PI_MODEL', 'openai/gpt-4o-mini')} "
-          f"@ {env.get('PI_BASE', '(PI_BASE unset)')}")
-    L.say(f"[cost] ceiling    : {cap} calls/run "
-          f"(raise: cenhua config max_llm_calls=<n>)")
-    if stale:
-        L.say(f"[cost] note       : {len(stale)} target(s) lack a text layer — "
-              f"deep read still works (it uses the tree index)")
-    L.say(f"[cost] cheaper    : cenhua find <terms> first; grep for existence, "
-              f"LLM for meaning")
-
-    # M2b 任务7：dry-run 金额预估推广（calls + tokens + 金额，复用 M1a 换算）
-    from cenhua_service import cost as CC
-    texts = []
-    for d, _ in targets:
-        p = os.path.join(vault.textdir, f"{d}.txt")
-        try:
-            texts.append(open(p, encoding="utf-8", errors="ignore").read())
-        except OSError:
-            texts.append("x" * 6400)       # 无文本层按 4K tokens 保守估
-    model = env.get("PI_MODEL", "openai/gpt-4o-mini")
-    est = CC.estimate_docs(model, texts)
-    ok, gate = CC.cost_gate(vault, est, force=force)
-    for line in CC.dry_run_cost_lines(vault, est):
-        L.say(line)
 
     if dry_run:
+        for line in pre.lines:
+            L.say(line)
         L.say("\n(dry run — nothing was sent)")
         return 0
+
+    ok, gate = CC.cost_gate(vault, est, force=force)
     if not ok:
         L.die(f"refusing: {gate}", code=4)
     if n > cap and not force:
         L.die(f"refusing: {n} calls exceeds the per-run ceiling {cap}. "
               f"Narrow with --doc, lower --limit, or pass --force.", code=4)
-    if not L.chat_ready(env):
+    if not L.chat_ready(L.build_env(vault)):
         L.die("LLM gateway not configured: export PI_BASE and PI_KEY "
               "(find/read/flatten work without them)", code=3)
-    if n > 3 and not yes:
-        if not sys.stdin.isatty():
-            L.die(f"{n} LLM calls pending and stdin is not a tty — "
-                  f"pass --yes to confirm", code=4)
-        if L.ask_user(f"spend ~{n} LLM calls? type 'yes' to proceed") != "yes":
-            L.say("aborted (nothing spent)")
-            return 1
+    if not _confirm_gate(vault, n, yes):
+        return 1
 
-    args = (["--all", question, "--limit", n] if all_docs
-            else ["--doc", doc, question])
-    if workers:
-        args += ["--workers", workers]
+    # ---- 引擎执行进任务通道（M3a 任务 4）：chunks = [cost] 段 + 引擎输出 ----
     L.say(f"\n> deep read: {n} doc(s), parallel threads ... this takes a while")
-    t0 = time.time()
-    rc, _ = L.run_engine("pi_query.py", args, vault)
-    vault.log("query", [f"mode={'--all' if all_docs else '--doc ' + (doc or '')}",
-                        f"question={question}", f"calls={n} rc={rc} "
-                        f"{time.time()-t0:.0f}s"])
+    spec = C.channel_job(
+        "ask", C.ask, vault, question,
+        doc=doc, all_docs=all_docs, limit=limit, force=force,
+        workers=workers, confirm=lambda k: True)
+    handle = J.submit(spec)
+    printed = [0]
+    plen = len(pre.lines)
+
+    def _print(line):
+        if printed[0] < plen:                # 前置段 CLI 已打过，通道副本跳过
+            printed[0] += 1
+            return
+        L.say(line)
+
+    st = J.run_cli(handle, _print)
+    try:
+        res = J.job_result(handle)
+    except (J.JobFailed, J.JobStale) as exc:
+        L.die(f"ask: {exc}", code=1)
+    rc = res.rc if st.state != J.ABORTED else 1
     if rc == 0:
+        targets = (L.resolve_docs(vault, None, limit=limit) if all_docs
+                   else L.resolve_docs(vault, doc))
         record(vault, n, "all" if all_docs else "doc",
-               [name for _, name in targets][:30])
-        # 命中入队（M1b §5.3）：被深读的文档进精化队列，等预算消费
-        try:
-            from cenhua_service import refine as R
-            for d, _ in targets:
-                R.enqueue(vault, d, reason="ask")
-        except Exception:
-            pass
-        L.say(f"\n[ask] {n} LLM call(s) used | {time.time()-t0:.0f}s | "
-              f"every answer above carries a 'Source:' line — open the archived "
-              f"original to verify before you publish")
+               [name for _, name in targets][:30], est=est)
+        L.say(f"\n[ask] {n} LLM call(s) used | every answer above carries a "
+              f"'Source:' line — open the archived original to verify "
+              f"before you publish")
     return rc
 
 

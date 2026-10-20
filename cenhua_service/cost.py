@@ -361,6 +361,28 @@ def dry_run_cost_lines(vault, est):
     return lines
 
 
+# ------------------------------------------------- 长任务预算闸（M3a 任务 8）----
+# digest 等长任务用独立预算：all-or-nothing 只在启动时执法一次，
+# 豁免 CENHUA_MAX_COST_CNY / CENHUA_MAX_LLM_CALLS 的中途执法（防腰斩断头洞察）。
+LONGJOB_COST_ENV = "CENHUA_LONGJOB_MAX_COST_CNY"
+LONGJOB_DEFAULT = 5.0
+
+
+def longjob_max_cost_cny(vault=None):
+    """长任务预算上限（CNY）。env > vault.yaml longjob_max_cost > 5.0。"""
+    env = os.environ.get(LONGJOB_COST_ENV)
+    if env:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    if vault is not None:
+        try:
+            return float(vault.cfg().get("longjob_max_cost", LONGJOB_DEFAULT))
+        except ValueError:
+            pass
+    return LONGJOB_DEFAULT
+
 # ------------------------------------------------------- calibration ----
 def calibrate(vault, actual_cost, est_cost, model=""):
     """预估校准闭环：预估偏差 >3x 告警，防单价表过期。

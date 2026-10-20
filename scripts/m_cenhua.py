@@ -68,6 +68,13 @@ RETRIEVAL
                                     four-section answer: hits + LLM extension
                                     + verified citations + related (M2b)
 
+INSIGHTS (M3a; LLM — cost guard applies)
+  digest --weekly | --monthly | --quarterly | --since YYYY-MM-DD [--dry-run]
+        four-section insight article (graph + cross-doc findings + open
+        questions + citations); auto-flows back as tier=derived-doc.
+        long-job gate: CENHUA_LONGJOB_MAX_COST_CNY, all-or-nothing.
+        cron-friendly; watch only hints.
+
 COST & QUALITY
   cost [--month YYYY-MM]            cost ledger summary, grouped by command
                                     (ingest cost listed first)
@@ -94,7 +101,7 @@ Examples
 
 VALUE_OPTS = {"--title", "--gateway", "--home", "--vault", "-d", "--doc",
               "-p", "--page", "-g", "--grep", "--limit", "--workers", "--top",
-              "--set", "--interval", "-n", "--max"}
+              "--set", "--interval", "-n", "--max", "--since"}
 
 
 def positional(rest):
@@ -301,6 +308,9 @@ def main():
     if cmd == "bench":
         import m_cost
         return m_cost.bench_cmd(v, corpus=flag(rest, "--corpus"))
+    if cmd == "digest":
+        import m_digest
+        return m_digest.digest_cmd(v, rest)
     if cmd == "refine":
         import m_weave
         return m_weave.refine_cmd(v, rest)

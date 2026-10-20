@@ -367,7 +367,11 @@ def query_flow(vault, question, include_derived=False, dry=False, force=False,
                             "tokens_in": tin, "tokens_out": tout,
                             "est_cost": est["est_cost"],
                             "currency": est["currency"],
-                            "priced": est["priced"]})
+                            "priced": est["priced"],
+                            # hint 二段验证 ROI 账（M3a 任务 13）：
+                            # 验证轮用了多少 hint、剔了多少祈使句
+                            "hint_docs": hint_meta["docs"],
+                            "hint_dropped": hint_meta["dropped_imperative"]})
     vault.log("query", [f"question={question}", f"calls=1 "
                        f"parse_ok={bool(parsed)}"])
 

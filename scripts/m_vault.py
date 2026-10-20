@@ -11,7 +11,9 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import m_lib as L  # noqa: E402
+from cenhua_service import tier as TG  # noqa: E402
 
 DEFAULT_CFG = {
     "name": "",
@@ -304,18 +306,6 @@ def doctor(v):
 
 # ---------------------------------------------------------------- sources ---
 def sources(v, kw=""):
-    """Where did this content come from, and is the original still verifiable?"""
-    docs = L.store_docs(v)
-    targets = L.resolve_docs(v, kw) or [(d, x.get("name", d))
-                                        for d, x in docs.items()]
-    if not targets:
-        L.say("(no documents yet)")
-        return
-    for doc_id, name in targets:
-        rec = (L.read_json(os.path.join(v.store, "ingest_manifest.json"), {}) or {}).get(doc_id, {})
-        stored = rec.get("stored_as", "")
-        L.say(f"\n{name}  ({doc_id})")
-        L.say(f"  uploaded  : {rec.get('ts', '?')}  sha1 {rec.get('sha1', '?')[:16]}")
-        L.say(f"  from      : {rec.get('source', '?')}")
-        L.say(f"  archived  : {stored if stored and os.path.exists(stored) else 'MISSING — verify from the text layer'}")
-        L.say(f"  text layer: {os.path.join(v.textdir, doc_id + '.txt')}")
+    """Where did this content come from? 三层分组渲染在 service（tier.sources_lines）。"""
+    for line in TG.sources_lines(v, kw):
+        L.say(line)

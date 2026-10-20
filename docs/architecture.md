@@ -212,6 +212,64 @@ test_71 白名单（M2b = query_cmd）。
 `PI_BASE`/`PI_KEY` 跑全量。非确定性治理（F6.3）：temperature=0 + 失败重试
 1 次；同一题连续 2 版 flaky 自动转人工仲裁（meta/qa/flaky.jsonl）。
 
+### 2.20 `cenhua_service/jobs.py` — 任务通道（M3a）+ 持久化边界 ADR
+
+LLM 长任务（ask/query/digest 等）统一经任务通道执行，CLI/Web/API 三形态
+共用同一进度协议（roadmap §6.5）：
+
+- `submit(job: JobSpec) -> JobHandle`：登记并提交后台执行（线程），立即返回句柄；
+- `job_status(handle) -> JobStatus`：**增量** output chunks + 进度 + 终态 + cost 累计
+  （增量语义为 M3b SSE 薄适配预留，客户端按 cursor 拉新增 chunk）；
+- `job_result(handle) -> AskResult | QueryResult | DigestResult`：终态后取结构化结果。
+
+**ADR-001 持久化边界（2026-10-16 用户拍板）：重启后标废。**
+- 决策：任务通道**纯内存态**（进程内 job 表 + 线程执行），不做任何磁盘/sqlite 持久化；
+  进程重启（或正常退出）后未完成的任务不续跑、不恢复——新进程查旧 handle 一律返回
+  `aborted(stale)` 终态。
+- 备选否决：① 重启后续跑（需持久化执行现场，复杂度与 CLI-only 场景收益完全不成比例）；
+  ② 持久化到 sqlite（引入 job 表与主库一致性负担，且 LLM 任务幂等重跑本就便宜）。
+- 理由：实现最简；digest/ask 类任务重跑成本低（重跑 = 重新 submit）；CLI 形态下每个
+  命令本就是独立进程，"进程退出即任务终点"与用户直觉一致；M3b 的 SSE/WebSocket 断线
+  重连只需支持"重订阅**本进程内仍存活**的 job"，历史 job 明确不可恢复（对用户诚实）。
+- 后果：`job_status` 对未知/过期 handle 必须返回明确的 stale 终态而非抛错；UI 层对
+  stale 任务提示"任务已随进程结束，请重新发起"。
+
+### 2.21 `cenhua_service/core.py` — 六核心函数 service 化（M3a 任务 2）
+
+`ingest / find / query / related / ask / stats` 全部入 service（dataclass 返回、
+零 print），CLI 只做参数解析与打印。`core.channel_job(kind, fn, *args)` 把
+"返回带 `lines`/`cost` 的 dataclass"的长任务函数适配成 `jobs.JobSpec`——
+ask/query/digest 三命令共用同一适配，progress/heartbeat 语义由 `jobs.run_cli`
+（CLI）与 M3b 的 SSE 各自适配。`core.ask_estimate` 是深读前置段的单一事实源
+（scope 解析 + 估价 + `[cost]` 渲染行，零副作用），CLI 预取 n 决定是否交互确认。
+
+### 2.22 `cenhua_service/digest.py` + `scripts/m_digest.py` — 周期洞察（M3a）
+
+`digest_flow` 主编排：窗口解析（`parse_window`）→ 时间窗圈选 primary 文档
+（按摄取台账 ts）→ dry-run 估价 → longjob 三闸（`budget_check`：
+`CENHUA_LONGJOB_MAX_COST_CNY` 默认 ¥5，all-or-nothing 拒启不中途停，F1）→
+`compose` 四节文章生成（LLM 主路径 + 规则兜底；引文全量 `verify_citation`
+校验；命名 `洞察_<窗口>_V{N}_<日期>.md` 集中一处生成）→ `ingest_back` 回流
+闭环（复制进 inbox 走标准摄取，台账原子改写 `tier=derived-doc` +
+`derived_from`；永不抛，失败不改 rc）。
+
+图谱隔离：衍生文档与 internal-artifact 不参与建边（relations 只认 primary），
+digest 产物不污染关联层。watch 只打印提示（`watch_hint`，F10），永不自动触发。
+CLI `digest_cmd` 8 行薄包装：`J.submit(core.channel_job(...)) + J.run_cli`
+（test_71 白名单 M3a = digest_cmd）。
+
+### 2.23 hint 注入对抗硬化（M3a 任务 13）
+
+`prompt._INJECT_RE`（中英 prompt-injection 形态：ignore/disregard previous、
+system prompt、"忽略…指令"、"你现在是"、"新的指令"、"系统提示"）+
+`_IMPERATIVE_RE`（祈使形态含 `[你您]应该/[你您]需要`，`注意(?!事项|意义|力)`
+防误伤）在 hint 装配时逐句消毒。fixture 新增 `type="injection"` 对抗题
+（≥1/3 `author:"human"`，防出题方与攻击方同源盲区），`bench.run_injection`
+离线零 LLM 进**阻断集**：消毒后残留祈使零、事实片段零丢失，任一失败阻断发版。
+hint 二段验证成本进 ROI 账：query 台账记 `hint_docs`/`hint_dropped`，
+`refine.roi_lines` 并入 `cenhua refine` 状态视图（验证成本倒贴生产成本时
+重新评估 hint 段价值）。
+
 ## 3. 关键数据流
 
 ### 3.1 摄取（含本地 OCR）
@@ -265,8 +323,11 @@ cenhua query "违约金条款"                       (M2b, v0.3.3)
 
 ### 4.3 成本护栏
 
-- `ask/query --dry-run` 打印调用数 + tokens + 金额（M2b 起推广至全 LLM 命令：
-  ask/query/refine；digest/draft 在 M3a/M4 落地时同规格）。
+- `ask/query/digest --dry-run` 打印调用数 + tokens + 金额（M2b 起推广至全
+  LLM 命令：ask/query/refine；M3a 起 digest 同规格；draft 随 M4 落地）。
+- 长任务（digest）走 all-or-nothing 三闸：dry-run 看账 →
+  `CENHUA_LONGJOB_MAX_COST_CNY` 拒启（rc=4）→ `--force`/`--max-cost` 放行；
+  启动后豁免中途执法（F1）。
 - `max_llm_calls`（默认 8）与 `CENHUA_MAX_COST_CNY`（默认 ¥2）并联，先到先停；
   超限需 `--force`。
 - 本地 OCR 免费，降低摄取成本。
@@ -310,6 +371,7 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 | `PI_EMBED_MODEL` | env | — | 向量模型 |
 | `CENHUA_MAX_COST_CNY` | env / vault.yaml `max_cost` | `2.0` | 单命令花费上限（M1a 登记，M2b 起 ask/query 执法）；不适用 add/watch 与长任务/批量任务 |
 | `CENHUA_LONGJOB_MAX_COST_CNY` | env / vault.yaml `longjob_max_cost` | `5.0` | 长任务（digest/draft）独立预算（M1a 起登记） |
+| `CENHUA_DIGEST_HINT_DOCS` | env / vault.yaml `digest_hint_docs` | `20` | watch 洞察提示阈值：自上次 digest 以来新摄取文档数（M3a） |
 | `CENHUA_PRICING` | env | `pricing.json` | 单价表覆盖路径（M1a） |
 | `CENHUA_REFINE_BUDGET_CNY` | env | `0`（拒绝） | refine 预算硬闸，CNY；USD 报价按保守汇率折算比较（M1b） |
 | `CENHUA_SMALL_CORPUS_N` | env | `200` | 小库模式阈值：N 低于该值用降档参数（M1b） |

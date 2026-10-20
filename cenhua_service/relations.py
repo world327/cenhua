@@ -71,17 +71,27 @@ def read_text(vault, doc_id):
 DERIVED_RE = re.compile(r"(?:^|[/_.-])(?:digest|draft|周报|日报)[_.\-]", re.I)
 
 
-def primary_docs(vault):
-    """[(doc_id, name)]，排除衍生文档（digest/draft；§7.3 防噪音炸弹）。
+# 非 primary 档位（图谱隔离，M3a 任务 12）：衍生文档与内部派生物一律不建边。
+# 不 import tier（tier 反向依赖本模块，防环），故在此自读台账 tier 字段。
+_NON_PRIMARY_TIERS = ("derived-doc", "internal-artifact")
 
-    衍生文档（M3 digest/draft）默认不入库摄取；万一用户手动 add 了
-    这类文件，按名称特征排除，避免其模板化文本把共现图刷满。
+
+def primary_docs(vault):
+    """[(doc_id, name)]，只保留 primary（§7.3 防噪音炸弹 + 任务 12 图谱隔离）。
+
+    排除规则（两层）：
+      1. 台账显式 tier 字段为 derived-doc / internal-artifact -> 排除
+         （digest 回流产物的名称"洞察_weekly_…"不命中 DERIVED_RE，
+          必须看 tier 才能挡住回流文章进共现图）；
+      2. 名称特征 DERIVED_RE 兜底（tier 尚未回填/手动 add 的衍生文件）。
     """
     store = os.path.join(vault.store, "ingest_manifest.json")
     led = _read_json(store, {}) or {}
     out = []
     for doc_id, rec in led.items():
         name = rec.get("name", doc_id)
+        if rec.get("tier") in _NON_PRIMARY_TIERS:
+            continue
         if DERIVED_RE.search(name):
             continue
         out.append((doc_id, name))

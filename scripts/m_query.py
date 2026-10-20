@@ -13,12 +13,16 @@ sys.path.insert(0, _HERE)                       # scripts/
 sys.path.insert(0, os.path.dirname(_HERE))      # ROOT (cenhua_service/)
 import m_lib as L  # noqa: E402
 from cenhua_service import query as Q  # noqa: E402
+from cenhua_service import core as C  # noqa: E402
+from cenhua_service import jobs as J  # noqa: E402
 
 
 def query_cmd(vault, rest):
-    """cenhua query "问题" [--include-derived --dry-run --force --top N]。"""
+    """cenhua query（M3a：检索执行进任务通道，run_cli 增量打印）。"""
     question, kw = Q.parse_args(rest)
-    rc, lines = Q.query_flow(vault, question, **kw)
-    for line in lines:
-        L.say(line)
-    return rc
+    handle = J.submit(C.channel_job("query", C.query, vault, question, **kw))
+    J.run_cli(handle, L.say)
+    try:                                    # 终态 rc；failed/stale 记 1
+        return J.job_result(handle).rc
+    except Exception:
+        return 1

@@ -11,5 +11,7 @@ M1a 交付：pricing/换算/ledger/cost/bench/verify_citation。
 from . import cost  # noqa: F401
 from . import verify  # noqa: F401
 from . import bench  # noqa: F401
+from . import jobs  # noqa: F401  (M3a 任务通道)
+from . import core  # noqa: F401  (M3a 六核心函数)
 
-__all__ = ["cost", "verify", "bench"]
+__all__ = ["cost", "verify", "bench", "jobs", "core"]

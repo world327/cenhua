@@ -25,13 +25,18 @@ UNVERIFIED = "[未溯源·LLM 推断]"
 # 祈使句判定：句首/句中双字祈使词（单字"须/应"不匹配，防误伤合同条款）
 _IMPERATIVE_RE = re.compile(
     r"(?:^|[，,。；;：:\s])(?:请|麻烦|务必|切勿|禁止|不要|不准|别|应该|需要你|"
-    r"建议你|让我们|立即执行|现在开始|记住|注意|注意：)|必须|应当|严禁|请勿")
+    r"建议你|让我们|立即执行|现在开始|记住|注意(?!事项|意义|力))|必须|应当|严禁|请勿"
+    r"|[你您你们]应该|[你您]需要")
 
-# 注入特征（英文）：忽略先前指令 / 你现在是 / 系统提示 / 新指令
+# 注入特征：英文忽略先前指令/你现在是/系统提示/新指令 +
+# 中文同义形态（M3a 任务 13 对抗硬化；"忽略"须接"先前/以上…指令"，
+# 防误伤财务叙述"忽略不计"）
 _INJECT_RE = re.compile(
-    r"(?:\b(?:ignore|disregard|forget)\s+(?:all\s+|any\s+)?"
-    r"(?:previous|prior|above)\b|\byou\s+(?:must|should|are)\s+now\b|"
-    r"\bsystem\s+prompt\b|\bnew\s+instructions?\b)", re.I)
+    r"(?:\b(?:ignore|disregard|forget)\s+(?:all\s+|any\s+|the\s+)?"
+    r"(?:previous|prior|above)\b(?:\s+instructions?)?|\byou\s+(?:must|should|are)\s+now\b|"
+    r"\bsystem\s+prompt\b|\bnew\s+instructions?\b)|"
+    r"忽略.{0,8}(?:先前|之前|以上|上述|前面).{0,6}指令|"
+    r"你现在是|新(?:的)?指令|系统提示", re.I)
 
 # 切句正则：中文句读 / 英文 .!? 仅后跟空白才切（防 "128.5万元" 切碎）
 _SENT_SPLIT = re.compile(r"(?<=[。！？!?；;])|(?<=[.!?])(?=\s)|\n")

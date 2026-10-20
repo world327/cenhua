@@ -70,6 +70,9 @@ RETRIEVE  find <terms> [-d doc] [-i] [-r] · read <doc> [-p N] [-g re] · list
 QUERY     query "问题" [--include-derived] [--dry-run] [--force] [--top N]
           四段输出：直接命中 + 总结延展 + 内容出处 + 关联推荐（v0.3.3 起）
 DEEP READ ask [--doc kw | --all] "q" [--limit N] [--dry-run]   (成本护栏)
+INSIGHT   digest --weekly | --monthly | --quarterly | --since YYYY-MM-DD
+          [--dry-run] [--force] [--max-cost N]
+          四节洞察文章，自动回流入库 tier=derived-doc（v0.4.0 起）
 SEMANTIC  index build|status · seek "question"     (可选向量层)
 WEAVING   related <doc> · link <A> <B> · link --ban <E1> <E2> · hub ·
           weave rebuild · refine [--all --dry-run | --drain [--force]]
@@ -267,6 +270,36 @@ cenhua query "ABC 合同的违约金条款"
   `CENHUA_MAX_COST_CNY`（默认 ¥2）拒绝启动，`--force` 放行。
 - 无命中时 query 直接拒答（rc=1）——"沉默不是证据"，拒答是正确行为。
 
+### 4.4b 周期洞察 `digest`（v0.4.0 · M3a 起）
+
+按时间窗把库内新文档编织成一篇四节洞察文章（全程引文 + snippet 校验）：
+
+```bash
+cenhua digest --weekly --dry-run     # 先看账：窗口圈选 + calls + tokens + 金额
+cenhua digest --weekly               # 正式生成（长任务通道，CLI 实时打印进度）
+cenhua digest --monthly              # 自然月窗口
+cenhua digest --quarterly            # 自然季窗口
+cenhua digest --since 2026-09-01     # 自定义起点（与三周期互斥）
+```
+
+四节结构：① 图谱速览（本期实体/关联动态）② 跨文档发现 ③ 待澄清问题
+④ 引用清单（每条结论 `[doc P页]` + 逐字 snippet，校验不过自动标
+`[未溯源·LLM 推断]`）。
+
+规则与习惯：
+
+- **产物自动回流入库**：文章落 `works/digests/洞察_<窗口>_V{N}_<日期>.md`
+  并走标准摄取闭环，台账 `tier=derived-doc` + `derived_from` 链；
+  检索默认不召回它（`--include-derived` 显式开启，引文穿透指回原件）。
+- **all-or-nothing 三闸**（长任务预算，F1）：① `--dry-run` 先看账；
+  ② 预估超 `CENHUA_LONGJOB_MAX_COST_CNY`（默认 ¥5，vault.yaml
+  `longjob_max_cost` 可覆盖）拒绝启动 rc=4；③ `--force` / `--max-cost N`
+  放行。**启动后不中途掐**（豁免中途执法），宁可启动前拒死。
+- **watch 只提示不触发**：自上次洞察以来新摄取 ≥N 篇（默认 20，
+  `CENHUA_DIGEST_HINT_DOCS` / vault.yaml `digest_hint_docs` 可调）时
+  watch 日志提示一句，生成永远由人发起（F10）。
+- 命名版本集中一处生成（`_V{N}_` 自动递增），cron 定时跑安全。
+
 ### 4.5 溯源
 
 每条命中都带 `[doc P页]` 和 `Source:` 行，指向存档原件：
@@ -296,6 +329,10 @@ cenhua bench --corpus       # 用户库 QA（报告模式，只打印不阻断�
 自 v0.3.3 起门禁加入**拒答正确率 ≥90%**（fixture 拒答题需 LLM）：
 离线 CI 无网关时拒答集显示 skipped 不阻断；**发版流水线必须带
 `PI_BASE`/`PI_KEY` 跑全量**，否则 release notes 需标注"拒答门禁未验证"。
+
+自 v0.4.0 起门禁加入**注入对抗集**（fixture 注入题，离线零 LLM）：hint 摘要
+中混入的中英祈使/注入句必须被 `sanitize_hint` 整句剔除且事实片段零误伤，
+对抗题至少 1/3 人工撰写（`author:"human"`），任何一题失败即阻断发版。
 
 ## 5. 库管理
 

@@ -92,6 +92,12 @@ prompt 两段式（`cenhua_service/prompt.py` 装配）：
   门禁计为失败。
 - **基于 hint 的结论必须回到 primary 正文重新验证后引用**；证据段不足以
   回答时如实拒答（沉默不是证据，编造更不是）。
+- **注入对抗硬化**（v0.4.0 · M3a 起）：消毒正则覆盖中英 prompt-injection
+  形态（"忽略…指令"/"你现在是"/"system prompt" 等），fixture 注入对抗题
+  ≥1/3 人工撰写（`author:"human"`，防出题方与攻击方同源盲区）并进 bench
+  **离线阻断集**（消毒零残留 + 事实零误伤，任一失败不发版）；hint 二段验证
+  的 token 开销计入 refine ROI 账（`refine.roi_lines`，验证成本倒贴生产
+  成本时重新评估 hint 段价值）。
 - **执法豁免边界**：两段式管辖 ask/query/digest/draft 的 prompt 组装；
   `refine` 自身的精化 prompt 不在管辖内（其输入本就是 internal-artifact
   的规则层粗提取，产出的 refined 字段才是 hint 原料）。

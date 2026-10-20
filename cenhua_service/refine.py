@@ -281,8 +281,44 @@ def dry_run_lines(vault, est, queue_len):
     return lines
 
 
+def roi_lines(vault):
+    """hint 二段验证 ROI 账（M3a 任务 13）。
+
+    口径（dev-plan §6.3 任务 13 / R3 §4）：验证轮次（cmd=query 的 LLM 延展）
+    token 开销计入 refine ROI 账——hint 省下的是导航成本，不能倒贴验证成本。
+    refine=生产成本，query=验证成本，两行并排可见。零 print。
+    """
+    from cenhua_service import cost as C
+    refine_parts, query_parts = [], []
+    refine_calls = query_calls = 0
+    hint_docs = hint_dropped = query_rounds = 0
+    for r in C.read_ledger(vault):
+        cmd = r.get("cmd")
+        if cmd == "refine":
+            refine_calls += r.get("calls", 0)
+            refine_parts.append((r.get("est_cost", 0.0),
+                                 r.get("currency", "CNY")))
+        elif cmd == "query":
+            query_calls += r.get("calls", 0)
+            query_rounds += 1
+            query_parts.append((r.get("est_cost", 0.0),
+                                r.get("currency", "CNY")))
+            hint_docs += r.get("hint_docs", 0)
+            hint_dropped += r.get("hint_dropped", 0)
+    lines = ["[ROI] hint 导航收益 vs 验证轮成本（cmd 台账口径）:"]
+    lines.append(f"  refine 生产 : {refine_calls} calls  "
+                 + C.format_cost(refine_parts))
+    lines.append(f"  query 验证  : {query_calls} calls / {query_rounds} rounds  "
+                 + C.format_cost(query_parts))
+    lines.append(f"  hint 使用   : {hint_docs} doc-round(s), "
+                 f"{hint_dropped} 祈使句已剔除")
+    lines.append("  裁决口径    : 验证成本持续倒贴生产成本时，"
+                 "重新评估 hint 段价值")
+    return lines
+
+
 def status_lines(vault):
-    """无参状态报告行：rule-only/refined 覆盖 + 队列。"""
+    """无参状态报告行：rule-only/refined 覆盖 + 队列 + ROI 账。"""
     d = S.summaries_dir(vault)
     rule_only = refined = 0
     try:
@@ -298,7 +334,8 @@ def status_lines(vault):
     q = len(pending(vault))
     return [f"summaries: {rule_only} rule-only, {refined} refined",
             f"queue    : {q} document(s) waiting",
-            "usage    : cenhua refine --all --dry-run | --drain [--force]"]
+            "usage    : cenhua refine --all --dry-run | --drain [--force]"] \
+        + roi_lines(vault)
 
 
 # ------------------------------------------------------------ 编排 ----

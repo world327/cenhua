@@ -94,14 +94,16 @@ class ServiceTest(unittest.TestCase):
                         self.fail(f"{fn} must not call sys.exit()")
 
     def test_71_cli_is_thin(self):
-        """白名单命令（M1a: cost/bench；M1b: refine/related；M2b: query）
-        CLI 薄包装，函数体 <=10 行。"""
+        """白名单命令（M1a: cost/bench；M1b: refine/related；
+        M2b: query；M3a: digest）CLI 薄包装，函数体 <=10 行。"""
         import m_cost
+        import m_digest
         import m_query
         import m_weave
         for mod, names in ((m_cost, ("cost_cmd", "bench_cmd")),
                            (m_weave, ("refine_cmd", "related_cmd")),
-                           (m_query, ("query_cmd",))):
+                           (m_query, ("query_cmd",)),
+                           (m_digest, ("digest_cmd",))):
             for name in names:
                 fn = getattr(mod, name)
                 src_lines = _func_body(fn)
@@ -234,6 +236,10 @@ class ServiceTest(unittest.TestCase):
         self.assertGreaterEqual(
             rep["traceability"]["pass_entries"] / rep["traceability"]["total_entries"],
             0.95)
+        # M3a 任务 13：注入对抗进阻断集（离线零 LLM），人工撰写 >=1/3
+        self.assertTrue(rep["injection"]["ok"])
+        self.assertEqual(rep["injection"]["pass"], rep["injection"]["total"])
+        self.assertGreaterEqual(rep["injection"]["human_ratio"], 1.0 / 3)
 
     def test_111_bench_cmd(self):
         r = run(["bench", "--vault", "t"], self.home)

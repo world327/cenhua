@@ -284,6 +284,18 @@ def add(vault, paths, use_inbox=False, flatten=True):
     return 1 if counts["failed"] else 0
 
 
+def _digest_hint(vault):
+    """digest 提示（M3a 任务 6，F10）：只打印一行提示，绝不自动触发执行。"""
+    try:
+        from cenhua_service import digest as G
+        since = G.docs_since_last_digest(vault)
+        if since >= G.hint_threshold(vault):
+            L.say(f"提示：自上次洞察以来已摄取 {since} 篇，"
+                  f"可运行 cenhua digest --dry-run 估价")
+    except Exception:
+        pass                                    # 提示失败绝不拖垮 watch
+
+
 def watch(vault, interval=5.0, once=False, idle_rounds=10):
     """Poll the inbox; ingest files whose size has been stable for one round.
     A partially-copied large file therefore never gets grabbed mid-write.
@@ -320,6 +332,7 @@ def watch(vault, interval=5.0, once=False, idle_rounds=10):
                 L.run_engine("pi_flatten.py", [], vault, capture=True)
                 _rule_summaries(vault)
                 L.say(f"+ {n} document(s) indexed and searchable")
+                _digest_hint(vault)
         else:
             idle += 1
         rounds += 1

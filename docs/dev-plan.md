@@ -424,7 +424,7 @@ cost/bench 入 service。
 
 | # | 任务 | 粒度 | 依赖 | 验收 |
 |---|---|---|---|---|
-| 1 | **★ 任务通道持久化边界裁决**（R4 §4 强制）：重启后未完成任务的续跑或标废策略；**开工前必须拍板** | 0.5 天（决策） | — | 决策文档落库；ADR 记录 |
+| 1 | **★ 任务通道持久化边界裁决**（R4 §4 强制）：✅ 已拍板**重启后标废**（纯内存态，重启后未完成 jobs 标 aborted(stale)，ADR 见 architecture.md §2.20） | 0.5 天（决策） | — | ✅ 决策文档落库；ADR 记录 |
 | 2 | service 层完成：`ingest`/`find`/`query`/`related`/`ask`/`stats` 全部入 service（dataclass 返回，禁 print/exit）；契约登记制建档持续维护 | 2 天 | M2b | 6 核心函数全部入 service；契约文档与本里程碑实现一致 |
 | 3 | 任务通道实现：`submit(job: JobSpec) -> JobHandle` / `job_status(handle) -> JobStatus`（含增量 output chunks、进度、终态、cost 累计）/ `job_result(handle) -> AskResult \| QueryResult` | 2 天 | 1 | 三接口单测；任务通道契约登记 |
 | 4 | LLM 长任务（ask/query/digest/draft/ingest 进度）统一走任务通道；CLI 轮询打印进度；CLI/Web/API 三形态共用同一进度协议 | 1.5 天 | 3 | 长任务走通道单测；CLI 进度打印 |
@@ -447,22 +447,22 @@ cost/bench 入 service。
 
 ### 6.4 Definition of Done
 
-- [ ] §6.3 任务 1-18 全绿
-- [ ] **★ 任务通道持久化边界开工前已拍板**（R4 §4 强制，不得再顺延）
-- [ ] service 层 6 核心函数全部入 service（契约登记制持续维护）
-- [ ] 任务通道 `submit/job_status/job_result` 三接口落地，CLI/Web/API 共用同一进度协议
-- [ ] `cenhua digest` 走任务通道，CLI 实时打印进度
-- [ ] digest all-or-nothing + 豁免中途执法（三闸执法顺序）
-- [ ] **★ hint 注入对抗硬化**（不再是机制首发）：指令剥离硬规则化、fixture 注入对抗题至少 1/3 人工撰写、hint 二段验证成本计入 refine ROI
-- [ ] 三层 artifact 闭环：digest 入库 `tier=derived-doc`；`cenhua sources` 按三类分组
-- [ ] digest 触发方式含 watch 打印提示（F10，无自动触发执行）
-- [ ] §1.3 DoD 模板全部勾选
+- [x] §6.3 任务 1-18 全绿（v0.4.0；test_jobs 10 + test_core 14 + test_channel 11 + test_digest 27 + test_query 46 + test_service 19，coverage 总 82% ≥70%）
+- [x] **★ 任务通道持久化边界开工前已拍板**（R4 §4 强制，不得再顺延）——2026-10-16 裁决：**重启后标废**
+- [x] service 层 6 核心函数全部入 service（core.py dataclass 返回零 print；契约登记制持续维护）
+- [x] 任务通道 `submit/job_status/job_result` 三接口落地，增量 cursor 协议，CLI `run_cli` 已适配（M3b SSE 为同协议另一适配）
+- [x] `cenhua digest` 走任务通道，CLI 实时打印进度（channel_job + run_cli，digest_cmd 8 行薄包装）
+- [x] digest all-or-nothing + 豁免中途执法（dry-run 看账 → LONGJOB 闸拒启 rc=4 → force/max-cost 放行；启动后不中途掐）
+- [x] **★ hint 注入对抗硬化**（不再是机制首发）：_INJECT_RE 中英形态硬规则化、fixture 注入对抗题 6 题（human 3/6 ≥1/3）进离线阻断集、hint 二段验证成本计入 refine ROI（roi_lines 并入状态视图）
+- [x] 三层 artifact 闭环：digest 回流 ingest_back 入库 `tier=derived-doc` + derived_from；`cenhua sources` 三类分组（tier.sources_lines）；图谱隔离（非 primary 不建边）
+- [x] digest 触发方式含 watch 打印提示（F10，watch_hint 只提示不执行）
+- [x] §1.3 DoD 模板全部勾选（全量套件全绿 + bench fixture 阻断集全过含注入对抗 + 文档六件套同步 + 版本号 0.4.0）
 
 ### 6.5 风险点与对策
 
 | 风险 | 对策 |
 |---|---|
-| **任务通道持久化边界未拍板** | **开工前必须裁决**（R4 §4 强制）；选项：① 重启后续跑 ② 重启后标废 ③ 持久化到 sqlite |
+| ~~任务通道持久化边界未拍板~~ | ✅ 已裁决重启后标废（architecture.md §2.20）；残余风险：M3b 断线重连仅支持"重订阅进行中的 job"，历史 job 不恢复 |
 | M3a 工程难度最高（5 事同里程碑） | 任务粒度缓冲 20%；建议先做任务通道 + service 完成，再做 digest + hint 硬化 |
 | digest 全库扫描成本（R3 §4 预告） | `cenhua digest --dry-run` 估价；超 `CENHUA_LONGJOB_MAX_COST_CNY`（5.0）拒启；库到 1000 篇时考虑抽样策略 |
 | hint 注入对抗题出题权盲区 | 至少 1/3 对抗题人工撰写；fixture 注入对抗题进 `meta/qa/flaky.jsonl` 跟踪 |
@@ -637,12 +637,12 @@ cost/bench 入 service。
 
 | 自查项 | 触发版本 | 对策 |
 |---|---|---|
-| hint 注入面 | M2b/M3a | hint 段首发即硬规则化"只许陈述、不许祈使"；M3a 加注入对抗题至少 1/3 人工撰写 |
-| hint 二段验证成本 | M3a | 验证轮次 token 开销计入 refine ROI 账 |
+| hint 注入面 | M2b/M3a | ✅ M3a 已落地：注入对抗题 6 题（human 3/6）进离线阻断集 + test_query 对抗回归 46 项 |
+| hint 二段验证成本 | M3a | ✅ M3a 已落地：query 台账 hint_docs/hint_dropped + refine.roi_lines 并入状态视图 |
 | 用户库 QA 报告模式告警阈值 | M1a 起 | 引文准确率连续下滑时主动提示重新出题 |
 | 冻结 fixture 与引擎升级断裂 | M1a 起 | fixture 绑定 `engine_version`；提供 `bench --rebuild`（显式重建，烧 LLM 需确认） |
 | snippet 摘取的诚实性 | M1a 起 | verify 只证"该句在该页"不证"该句支撑该结论"；引文准确率诚实上限是逐字可溯率，文档措辞不得升格为"语义正确率" |
-| **★ 任务通道持久化边界** | **M3a 开工前必拍板** | 重启后未完成任务的续跑或标废策略；R2/R3/R4 连续三轮预告，不得再顺延 |
+| **★ 任务通道持久化边界** | **M3a 开工前已拍板** | ✅ 重启后标废（纯内存态；详见 architecture.md §2.20 ADR） |
 | digest 全库扫描成本（库到 1000 篇） | M3a 起 | `digest --dry-run` 估价；抽样策略评估 |
 
 ---
@@ -682,16 +682,16 @@ cost/bench 入 service。
 | 事项 | 状态 | 落地版本 |
 |---|---|---|
 | roadmap.md 按 R1-R4 四份评审修订 | ✅ 已完成 | — |
-| design.md：原则 10 增补"全量记账仅免闸 + 长任务/批量任务豁免中途执法"（T5+F1） | 📋 待 | M1a 起 |
+| design.md：原则 10 增补"全量记账仅免闸 + 长任务/批量任务豁免中途执法"（T5+F1） | ✅ 已完成（design.md §2.6；digest 三闸随 M3a 兑现） | v0.4.0 · M3a |
 | design.md：原则 11 增补 hint-not-evidence 完整规则（F2 snippet 强制、F3 生效版本、执法豁免边界） | ✅ 已完成（design.md §2.7） | v0.3.3 · M2b |
 | `docs/service-contract.md` 建档（M1a 首 commit，直接采用升级后契约：citations 含 snippet、verify_citation 三参签名、schema_version——F2） | 📋 待 | M1a 首 commit |
 | fixture 冻结产物制作流程（合成语料 → 建索引 → 冻结打包，绑定 engine_version，提供 `bench --rebuild`） | 📋 待 | M1a |
 | pricing.json `currency` 字段与 OpenClaw 全名匹配规则落 M1a（F9） | 📋 待 | M1a |
 | README 形态叙述同步（R1 遗留，仍未关闭） | ✅ 已完成（命令速查/Layout 同步至 v0.3.3） | v0.3.3 · M2b |
-| architecture.md 同步补 service 层架构（M1a 起）+ 任务通道架构（M3a 起）+ hint 两段式 prompt 架构（**M2b 起**，F3） | ✅ M1a/M2b 部分完成（§2.11/§2.17-2.19），任务通道待 M3a | M3a |
+| architecture.md 同步补 service 层架构（M1a 起）+ 任务通道架构（M3a 起）+ hint 两段式 prompt 架构（**M2b 起**，F3） | ✅ 已完成（§2.11/§2.17-2.23 全部落地） | v0.4.0 · M3a |
 | `max_llm_calls` → `CENHUA_MAX_LLM_CALLS` 迁移需兼容旧 env 名一个版本（deprecation warning） | 📋 待 | M1a |
 | `CENHUA_API_ALLOWED_AGENTS` 删除迁移：旧配置读取时 warn 并降级为单 token 模式（T8.2） | 📋 待 | M3b |
-| **★ 任务通道持久化边界**（R2/R3/R4 连续三轮预告，**M3a 开工前必须拍板**） | 📋 待 | M3a 开工前 |
+| **★ 任务通道持久化边界**（R2/R3/R4 连续三轮预告） | ✅ 已裁决（2026-10-16 用户拍板：**重启后标废**——纯内存态任务通道，进程重启后未完成 jobs 标 `aborted(stale)`；理由：实现最简、digest/ask 重跑成本低、CLI-only 场景进程退出即任务终点，M3b SSE 断线重连按 handle 重订阅不依赖持久化。ADR 见 architecture.md §2.20） | M3a |
 
 ---
 

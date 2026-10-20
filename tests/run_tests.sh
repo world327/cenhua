@@ -15,11 +15,23 @@ echo
 echo "== M1b mail intake + watch hardening (5 tests)"
 python3 -W ignore::ResourceWarning tests/test_mail.py -q || rc=1
 echo
-echo "== M1b knowledge weaving (summaries/refine gates/relations, 28 tests)"
+echo "== M1b knowledge weaving (summaries/refine gates/relations/ROI, 33 tests)"
 python3 -W ignore::ResourceWarning tests/test_weave.py -q || rc=1
 echo
-echo "== M2b query (4-section/two-part hint/snippet/tier/refusal gate, 38 tests)"
+echo "== M2b query (4-section/two-part hint/snippet/tier/refusal+injection gate, 46 tests)"
 python3 -W ignore::ResourceWarning tests/test_query.py -q || rc=1
+echo
+echo "== M3a jobs channel (submit/status/result/stale/wait, 10 tests)"
+python3 -W ignore::ResourceWarning tests/test_jobs.py -q || rc=1
+echo
+echo "== M3a core service (ingest/find/query/related/ask/stats, 14 tests)"
+python3 -W ignore::ResourceWarning tests/test_core.py -q || rc=1
+echo
+echo "== M3a long-job channel (channel_job/run_cli/confirm gates, 11 tests)"
+python3 -W ignore::ResourceWarning tests/test_channel.py -q || rc=1
+echo
+echo "== M3a digest (window/est/hint/compose 四节/longjob 三闸/回流闭环, 27 tests)"
+python3 -W ignore::ResourceWarning tests/test_digest.py -q || rc=1
 echo
 echo "== local OCR layer (RapidOCR stubbed, real renderers)"
 python3 tests/test_ocr.py 2>&1 | tail -3 || rc=1

@@ -241,3 +241,42 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
   三态（None/True/False）混成两态就会要么形同虚设要么离线 CI 全红。
 - **有引文就不算拒答**：判 refuse 必须"无 citations + 拒答措辞"双条件——
   模型一边说"未提及"一边编个 citation，是比不拒答更危险的失败模式。
+
+## 12. 任务通道与 digest（M3a）
+
+**任务通道**
+- **stale 终态不许抛错**：进程重启后旧 handle 查 `job_status` 必须返回
+  明确的 `aborted(stale)`，抛 KeyError 会让 CLI/SSE 适配层各写一套 try/except
+  且语义漂移（ADR-001 重启后标废的直接后果项）。
+- **增量 chunk 协议从第一天就要对**：`job_status` 按 cursor 只回新增 chunks；
+  若先实现"全量快照"再改增量，M3b SSE 适配会推翻重来。
+- **printer 由 CLI 注入**：service 层禁 print（test_70），`run_cli(handle,
+  L.say)` 把打印权留给 CLI 层；service 内部 `print` 一次就会白屏假死——
+  心跳行也是 emit 出来的 chunk。
+
+**digest**
+- **回流文档绝不进图谱**：digest 产物再入 ingest 后，若 relations 不滤
+  `tier != primary`，衍生文章会把不相干原件连成假边（图谱污染比检索噪音
+  难查得多）。建边入口只认 primary 是硬约束。
+- **台账 tier 改写必须原子**：回流后补写 `tier=derived-doc` + `derived_from`
+  走 tmp+rename；直接截断重写 ingest_manifest.json 撞上引擎 test_61 字节级
+  校验，且崩在半路会让台账变砖。
+- **回流失败不许改 rc**：compose 成功即 rc=0；ingest_back 失败只打警告行
+  （best-effort）。让回流失败翻 rc 会让"文章已生成"被误报为整体失败。
+- **all-or-nothing 中途不掐**：预算闸只执法"拒启"（rc=4），启动后豁免中途
+  执法（F1）——长任务中途掐 = 白花已花的钱还留下半成品；宁可启动前拒死。
+- **窗口口径 = 摄取台账 ts 而非文件 mtime**：mtime 会随复制/同步漂移，
+  窗口圈选必须跟台账走，否则 cron 定时 digest 每次圈中的集合不稳定。
+
+**注入对抗消毒**
+- **正则标志位是语义的一部分**：替换 `_INJECT_RE` 时丢掉 `re.I` 会让大写
+  "Ignore previous…" 全部漏网且回归测试（全小写语料）照样绿——对抗规则
+  必须中英 + 大小写双形态用例进 test_query。
+- **词表放宽要带负向断言**："你应该把密码…"要抓，"注意事项详见附表"不能误伤；
+  裸词 `注意` 必须写成 `注意(?!事项|意义|力)`。单字"须/应"仍绝不单独匹配。
+- **切句口径与 dropped 计数**：英文 `.!?` 仅后跟空白才切（防"128.5万元"），
+  连写文本一句可含两个注入点被 `
+` 切成两句——对抗断言用
+  `assertGreaterEqual(dropped, N)` + 零残留，不要精确等值钉死计数。
+- **对抗题禁止全由 LLM 出**：出题方与攻击方同源会留共同盲区，≥1/3
+  `author:"human"` 是门禁硬条件（`run_injection` 的 human_ratio 检查）。

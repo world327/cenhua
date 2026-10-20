@@ -163,6 +163,7 @@ class CostEstimate:
 | `tier.record_tier` | `(vault, doc_id) -> str` | 摄取成功后把 tier 补写台账（tmp+原子 rename；引擎不动） |
 | `tier.derived_from` | `(vault, doc_id) -> [primary_id]` | 穿透链：优先台账字段，退关系层；防环 |
 | `tier.penetration` | `(vault, doc_id, page) -> [{"doc","page"}]` | 引文位置 -> primary 位置；internal 恒 [] |
+| `tier.sources_lines` | `(vault, kw="") -> list[str]` | `cenhua sources` 三层分组渲染（M3a 任务 11）：primary → derived-doc → internal-artifact 顺序，derived 组追加 derived_from 链；零 print |
 
 `cenhua_service/prompt.py`（★ 两段式 hint-not-evidence，F3 自 v0.3.3 生效）：
 
@@ -170,6 +171,8 @@ class CostEstimate:
 |---|---|---|
 | `prompt.sanitize_hint` | `(text) -> (clean, n_dropped)` | 祈使/注入句逐句剔除（只许陈述；英文 .!? 后跟空白才切句，防 "128.5万" 切碎） |
 | `prompt.hint_block` | `(vault, doc_ids) -> (lines, meta)` | 仅 refined；`[HINT tier=internal]` 标记；无 hint 明示不沉默 |
+| `bench.run_injection` | `(qs) -> items[]` | M3a 任务 13 注入对抗门禁（离线零 LLM 阻断集）：sanitize_hint 后注入特征必须被剔除、事实句不误伤；fixture 对抗题 ≥1/3 `author:"human"` |
+| `refine.roi_lines` | `(vault) -> list[str]` | hint 二段验证 ROI 账（M3a 任务 13）：refine 生产成本 vs query 验证轮成本（台账 cmd 分组），并入 `cenhua refine` 状态视图；零 print |
 | `prompt.evidence_block` | `(segments) -> lines` | `[EVIDENCE tier=primary]`；调用方保证只传 primary |
 | `prompt.build_prompt` | `(question, hint_lines, evidence_lines) -> str` | hint 前证据后；协议指令含 snippet 逐字强制 |
 | `prompt.parse_answer` | `(text) -> dict\|None` | `{answer, citations[{doc,page,snippet}]}`；缺 snippet 留空串由 verify 计失败（F2） |
@@ -191,6 +194,122 @@ vault.yaml `max_cost` > 2.0；保守汇率折算只收紧）/ `dry_run_cost_line
 `cenhua_service/bench.py` M2b 增量：`run_refusal`（拒答门禁 ≥90% 进阻断集；
 无网关 skipped 不阻断，F6.2；temperature=0+重试 1 次，F6.3）；
 `_refusal_verdict`（无引文 + 拒答措辞 = refuse）。
+
+### 3.5 M3a 新增模块与函数（任务通道 + digest，登记制先行）
+
+`cenhua_service/jobs.py`（任务通道，**ADR-001 纯内存态/重启后标废**，
+见 architecture.md §2.20）：
+
+```python
+@dataclass
+class JobSpec:                 # 提交物：kind + 可执行体 + 元信息
+    kind: str                  # "ask"|"query"|"digest"|"ingest"...
+    run: Callable[[JobRuntime], Any]   # 后台线程执行；经 runtime 上报进度/cost
+    meta: dict = field(default_factory=dict)
+    schema_version: int = 1
+
+@dataclass(frozen=True)
+class JobHandle:               # 不透明句柄（跨形态传递用 to_dict/from_dict）
+    job_id: str
+    kind: str
+    schema_version: int = 1
+
+@dataclass
+class JobStatus:               # job_status(handle, cursor) 返回值
+    state: str                 # queued|running|done|failed|aborted
+    progress: float            # 0.0–1.0（不可估算时长任务保持低水位）
+    chunks: list[str]          # **增量**：仅 cursor 之后的新输出（M3b SSE 薄适配）
+    cursor: int                # 已产出 chunk 总数（下轮 cursor 传入值）
+    cost: dict                 # {"calls":int,"cost":float,"currency":str} 累计
+    error: str = ""            # failed 时的用户可读错误
+    reason: str = ""           # aborted 原因："stale"=进程重启后旧 handle（ADR-001）
+    schema_version: int = 1
+```
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `jobs.submit` | `(spec: JobSpec) -> JobHandle` | 内存 job 表登记 + daemon 线程执行，立即返回句柄 |
+| `jobs.run_cli` | `(handle, printer, poll=0.2, timeout=None, heartbeat=10.0) -> JobStatus` | CLI 轮询打印器（M3a 任务 4）：增量 chunks 逐行 printer + 进度变化行 + 无进展心跳行；终态/超时返回。service 层禁 print，printer 由 CLI 注入（`L.say`）；M3b SSE 是同协议另一适配 |
+| `jobs.job_status` | `(handle, cursor=0) -> JobStatus` | 增量协议；**未知 handle（含进程重启后）恒返回 `aborted/stale` 终态，不抛错**（ADR-001） |
+| `jobs.job_result` | `(handle) -> Any` | done → AskResult/QueryResult/DigestResult；未完成/失败/stale → 抛 `JobNotDone`/`JobFailed`/`JobStale` |
+| `jobs.wait` | `(handle, poll=0.2, timeout=None) -> JobStatus` | CLI 轮询便捷器（CLI 打印 chunks 走同一协议） |
+| `JobRuntime` | `progress(f)` / `emit(chunk)` / `add_cost(calls=,cost=,currency=)` | 执行体回调面（线程安全） |
+
+`cenhua_service/digest.py`（digest 编排，零 print；CLI 白名单 M3a=`digest`）：
+
+```python
+@dataclass
+class DigestResult:
+    path: str                  # <vault>/works/digests/<主题>_V{N}_<日期>.md
+    doc_id: str                # 回流入库后的 doc_id（tier=derived-doc）
+    derived_from: list[str]    # 本期引用 primary doc_ids
+    citations: list[Citation]  # 四节全文引文（含 snippet）
+    cost: CostEstimate | None
+    schema_version: int = 1
+```
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `digest.window` | `(vault, weekly/monthly/quarterly/since) -> (start, end, doc_ids)` | 时间窗内 primary 文档（按摄取台账 ts） |
+| `digest.estimate` | `(vault, doc_ids) -> dict` | dry-run 估价（estimate_docs 复用） |
+| `digest.budget_check` | `(vault, est, force=False, max_cost=None) -> (ok, msg)` | 三闸②③：`CENHUA_LONGJOB_MAX_COST_CNY`（默认 5.0）；all-or-nothing 拒启不中途停 |
+| `digest.compose` | `(vault, doc_ids, label="weekly", runtime=None, start=None, force=False, max_cost=None) -> (DigestResult, lines)` | 四节文章生成（M3a 任务 7 已落地）：LLM 主路径 + 规则兜底（铁律 fallback）；引文全量 verify_citations 校验；文章落 `works/digests/洞察_<窗口>_V{N}_<日期>.md`；runtime 为任务通道进度回报（可选）；豁免中途执法 F1 |
+| `digest.ingest_back` | `(vault, result) -> doc_id` | 回流闭环（M3a 任务 10 已落地）：复制 works/digests 文章 → inbox → core.ingest → 台账显式改写 tier=derived-doc + derived_from（原子写）；永不抛，失败返回 "" |
+| `digest.watch_hint` | `(vault) -> str` | F10 watch 提示文案（N≥20 默认，只提示不触发） |
+
+`cenhua_service/cost.py` M3a 增量：`longjob_max_cost_cny(vault=None)`——
+`CENHUA_LONGJOB_MAX_COST_CNY` env > vault.yaml `longjob_max_cost` > 5.0。
+
+`cenhua_service/core.py`（六核心函数 service 化，M3a 任务 2；§3.1 契约落地）：
+
+```python
+@dataclass
+class IngestResult:
+    status: str                # "added"|"dupe"|"failed"
+    doc_id: str = ""
+    name: str = ""
+    error: str = ""
+    schema_version: int = 1
+
+@dataclass
+class FindHit:
+    doc: str; name: str; page: str; line: str; term: str
+    schema_version: int = 1
+
+@dataclass
+class Relation:
+    from_doc: str; to_doc: str; type: str; weight: float
+    evidence: str = ""; source: str = "auto"
+    schema_version: int = 1
+
+@dataclass
+class VaultStats:
+    name: str; title: str; docs: int
+    text_have: int; text_missing: int; text_empty: int
+    inbox_pending: int; failed_count: int
+    llm_calls_total: int; gateway_ready: bool; model: str
+    schema_version: int = 1
+```
+
+`AskResult`/`QueryResult` 只加字段（读侧容忍）：`rc: int = 0`、
+`lines: list = []`、`error: str = ""`——CLI/任务通道按 rc 分发，
+`lines` 为渲染行（`answer` 保留四段全文本）。
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `core.ingest` | `(vault, path) -> IngestResult` | 委托 `m_ingest.ingest_one(quiet=True)`（兼容包装：OCR/邮件子进程链留 CLI 侧）；sha1 前置解析 doc_id |
+| `core.find` | `(vault, terms, docs_selector=None, max_per_doc=15, regex=False, ignore_case=False) -> list[FindHit]` | 全 tier 原样扫文本层（find=存在性 grep，不做 tier 过滤；tier 降级是 query 的职责） |
+| `core.query` | `(vault, question, include_derived=False, dry=False, force=False, top=3) -> QueryResult` | 委托 `query.query_flow`；rc/lines 结构化返回 |
+| `core.related` | `(vault, doc) -> list[Relation]` | 委托 `relations.related`，dict → dataclass |
+| `core.ask_estimate` | `(vault, question, doc=None, all_docs=False, limit=10) -> AskResult` | 深读前置段（M3a 任务 4）：scope 解析 + estimate_docs + `[cost]` 渲染行（含 dry_run_cost_lines），**零副作用**；rc=2 参数/范围错；成功 `cost` 含 `calls=n`。CLI 预取 n 决定是否交互确认；`core.ask` 内部复用（单一事实源） |
+| `core.ask` | `(vault, question, doc=None, all_docs=False, limit=10, dry_run=False, force=False, workers=None, confirm=None) -> AskResult` | service 原生实现：复用 ask_estimate→dry_run 短路→cost_gate→ceiling→chat_ready→confirm(n)->bool 回调（CLI 注入交互确认；拒绝/异常→rc=1 `aborted (nothing spent)`）→run_engine(capture)→enqueue（失败隔离）。rc 语义：0 成功；1 用户放弃；2 参数错；3 网关未配置；4 预算/上限拒绝。台账由 CLI 侧 m_ask.record 统一记；引擎输出非结构化，citations=[] 诚实留空 |
+| `core.stats` | `(vault) -> VaultStats` | 纯读取统计；`core.stats_lines(vault, st=None) -> list[str]` 供 CLI 渲染 |
+| `digest.digest_flow` | `(vault, weekly=False, monthly=False, quarterly=False, since=None, dry_run=False, force=False, max_cost=None) -> DigestResult` | digest 主编排：窗口解析→圈选→估价→longjob 三闸→compose 四节生成；rc=0 成功/2 参数错/3 网关未配置/4 预算闸拒绝；compose 成功后自动回流（ingest_back，best-effort 不改 rc）；CLI 经 core.channel_job 任务通道执行。零 print |
+| `digest.parse_cli` | `(rest) -> dict` | digest CLI 参数解析（下沉 service 保 CLI 薄）：三周期/`--since`/`--dry-run`/`--force`/`--max-cost N` -> digest_flow kwargs |
+| `digest.parse_window` | `(weekly, monthly, quarterly, since) -> (start_date, label)` | 触发参数解析：三周期互斥、`--since` 与三周期互斥且须 YYYY-MM-DD；错误返回 `(None, 文案)` |
+| `digest.docs_since_last_digest` | `(vault) -> int` | 自上次洞察（works/digests/ 最新 mtime）以来摄取量；watch 提示（F10）计数口径 |
+| `digest.hint_threshold` | `(vault) -> int` | 提示阈值 N：`CENHUA_DIGEST_HINT_DOCS` > vault.yaml `digest_hint_docs` > 20 |
+| `core.channel_job` | `(kind, fn, *args, **kwargs) -> jobs.JobSpec` | 长任务→任务通道统一适配（M3a 任务 4）：fn 返回带 `lines`/`cost` 的 dataclass（AskResult/QueryResult/DigestResult），body 逐行 emit + cost 映射 `JobRuntime.add_cost`（cost 键 docs/calls/est_cost/currency） |
 
 ---
 

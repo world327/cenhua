@@ -261,6 +261,35 @@ def run_refusal(refusal_qs):
             "items": items}
 
 
+# ------------------------------------------------- 注入对抗门禁（M3a 任务13）----
+def run_injection(inj_qs):
+    """注入对抗 fixture（离线零 LLM，进阻断集）。
+
+    判定：hint 文本经 sanitize_hint 逐句消毒后——
+      1) 注入特征（_INJECT_RE / is_imperative）必须全部被剔除；
+      2) keep_terms 事实句不得被误伤（防硬规则扩大化误杀陈述句）。
+    fixture 治理：对抗题 >=1/3 标注 author=="human"（R4 §4 防同源盲区）。
+    """
+    from cenhua_service import prompt as P
+    items = []
+    human = 0
+    for q in inj_qs:
+        if q.get("author") == "human":
+            human += 1
+        clean, _dropped = P.sanitize_hint(q["hint_text"])
+        residue = [s.strip() for s in P._SENT_SPLIT.split(clean)
+                   if s.strip() and P.is_imperative(s.strip())]
+        missing = [t for t in q.get("keep_terms", []) if t not in clean]
+        items.append({"id": q["id"], "question": q["question"][:40],
+                      "author": q.get("author", "llm"),
+                      "residue": residue, "missing_terms": missing,
+                      "ok": not residue and not missing})
+    ratio = (human / len(inj_qs)) if inj_qs else 1.0
+    return {"total": len(inj_qs),
+            "pass": sum(1 for i in items if i["ok"]),
+            "human": human, "human_ratio": ratio, "items": items}
+
+
 def run_fixture():
     """跑 fixture 阻断级门禁（存在性 + 溯源，离线零 LLM）。
 
@@ -268,6 +297,7 @@ def run_fixture():
       {existence: {total, pass, fail, items[]},
        traceability: {total_entries, pass_entries, fail_entries, items[]},
        refusal: {total, pass, fail, skipped, items[]},
+       injection: {total, pass, human, human_ratio, items[], ok},
        ok: bool}
     """
     questions, engine_version = load_qa()
@@ -304,6 +334,11 @@ def run_fixture():
                 "snippet": c["snippet"], "ok": ok,
             })
 
+    # ---- injection: M3a 任务 13 阻断集（离线）：零残留 + 零误伤 + 人工占比 ----
+    inj = run_injection([q for q in questions if q.get("type") == "injection"])
+    inj_ok = (inj["total"] == 0) or (inj["pass"] == inj["total"]
+                                     and inj["human_ratio"] >= 1.0 / 3)
+
     # ---- refusal: M2b 起进阻断集；无 LLM 网关 -> skipped（F6.2 跳过路径） ----
     ref_items = run_refusal(refusal)["items"]
     refused = all(i.get("skipped") for i in ref_items) if ref_items else True
@@ -328,7 +363,8 @@ def run_fixture():
                     "skipped": len(refusal) - len(ref_done),
                     "items": ref_items,
                     "ok": None if refused else ref_ok},
-        "ok": ex_ok and tr_ok and ref_ok,
+        "injection": dict(inj, ok=inj_ok),
+        "ok": ex_ok and tr_ok and ref_ok and inj_ok,
     }
 
 
@@ -407,6 +443,17 @@ def bench_report_lines(vault, corpus=False):
                  f"{'PASS' if ex['ok'] else 'FAIL'}  (100% required)")
     lines.append(f"  traceability: {tr['pass_entries']}/{tr['total_entries']} "
                  f"entries  {'PASS' if tr['ok'] else 'FAIL'}  (>=95%, n>=20)")
+    inj = rep.get("injection") or {}
+    if inj.get("total"):
+        lines.append(f"  injection   : {inj['pass']}/{inj['total']}  "
+                     f"{'PASS' if inj.get('ok') else 'FAIL'}  "
+                     f"(zero-residue, human {inj['human']}/{inj['total']} "
+                     f">=1/3)")
+        for it in inj.get("items", []):
+            if not it["ok"]:
+                lines.append(f"    FAIL injection {it['id']}: "
+                             f"residue={it['residue']} "
+                             f"missing={it['missing_terms']}")
     if ref["skipped"] and ref["skipped"] == ref["total"]:
         lines.append(f"  refusal     : {ref['total']} skipped "
                      f"(LLM gateway not configured — release pipeline must "
