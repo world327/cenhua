@@ -81,6 +81,11 @@ COST & QUALITY
   bench [--corpus]                  quality gate: fixture (blocking) or
                                     user-vault QA (report mode)
 
+WEB (M3b; local UI + LAN API)
+  web [--host H] [--port P]         serve 4 pages + /api/v1/* (default
+                                    127.0.0.1:8765; LAN = --host 0.0.0.0,
+                                    CENHUA_API_TOKEN required, fail-closed)
+
 KNOWLEDGE WEAVING (offline unless refining)
   related <doc>                     related docs with evidence 4-layers      [OFFLINE]
   link <docA> <docB>                manual relation (weight 0.8)             [OFFLINE]
@@ -101,7 +106,8 @@ Examples
 
 VALUE_OPTS = {"--title", "--gateway", "--home", "--vault", "-d", "--doc",
               "-p", "--page", "-g", "--grep", "--limit", "--workers", "--top",
-              "--set", "--interval", "-n", "--max", "--since"}
+              "--set", "--interval", "-n", "--max", "--since",
+              "--host", "--port"}
 
 
 def positional(rest):
@@ -382,6 +388,11 @@ def main():
     if cmd == "flatten":
         import m_ask
         return m_ask.flatten(v, force=flag(rest, "--force"))
+    if cmd == "web":
+        import m_webui
+        host = rest[rest.index("--host") + 1] if "--host" in rest else None
+        port = _int(rest, "--port", 0) or None
+        return m_webui.serve_cmd(v, host=host, port=port)
 
     # ---- retrieval ---------------------------------------------------------
     if cmd == "find":

@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 import m_lib as L  # noqa: E402
 import m_ocr  # noqa: E402
 
-ADDED_RE = re.compile(r"^\+\s(.+?)\s->\s(\S+)\s")
+ADDED_RE = re.compile(r"^\+\s(.+?)\s->\s(\S+)\s", re.M)
 
 
 def restore_provenance(vault, doc_id, orig_path, name):

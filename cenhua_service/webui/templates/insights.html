@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h3>洞察（digest · 只读）</h3>
+  <p class="muted">由 <code>cenhua digest --weekly/--monthly/--quarterly</code> 产出（v0.5 只读浏览；草稿编辑随 M4 交付）。API 面 <code>POST /api/v1/digest</code> 可触发任务。</p>
+  {% if files %}
+  <table>
+    <tr><th>文件</th><th>产出时间</th></tr>
+    {% for f in files %}
+    <tr><td><a href="/insights/{{ f.name|urlencode }}">{{ f.name }}</a></td><td class="mono">{{ f.mtime }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">还没有洞察。CLI 跑一篇：<code>cenhua digest --weekly --dry-run</code> 先看预算。</p>
+  {% endif %}
+</div>
+{% endblock %}

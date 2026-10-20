@@ -33,6 +33,9 @@ echo
 echo "== M3a digest (window/est/hint/compose 四节/longjob 三闸/回流闭环, 27 tests)"
 python3 -W ignore::ResourceWarning tests/test_digest.py -q || rc=1
 echo
+echo "== M3b webui (auth/rate-limit/SSE/docmeta/pages/rid, 45 tests)"
+python3 -W ignore::ResourceWarning tests/test_webui.py -q || rc=1
+echo
 echo "== local OCR layer (RapidOCR stubbed, real renderers)"
 python3 tests/test_ocr.py 2>&1 | tail -3 || rc=1
 echo

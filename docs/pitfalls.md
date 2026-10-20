@@ -280,3 +280,77 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
   `assertGreaterEqual(dropped, N)` + 零残留，不要精确等值钉死计数。
 - **对抗题禁止全由 LLM 出**：出题方与攻击方同源会留共同盲区，≥1/3
   `author:"human"` 是门禁硬条件（`run_injection` 的 human_ratio 检查）。
+
+## 13. Web UI 与局域网 API（M3b）
+
+**鉴权与协议**
+- **fail-closed 是双拒**：只拒"请求没带 token"不够——服务端**未配置 token
+  时必须拒绝一切**（含空串比对），否则空配置 = 全开放。比对必须
+  `hmac.compare_digest`（普通 `==` 有计时侧信道且易被 review 打回）。
+- **未知 job_id 不返回 404**：与 ADR-001 重启标废口径统一，恒返
+  `aborted/stale` + 200；返回 404 会让 SSE 重连逻辑分出"不存在/已作废"
+  两套分支而漂移。
+- **SSE 重连只重放未消费段**：cursor 由客户端持有，服务端无状态重放；
+  若服务端自己记游标，多标签页/重连会互相吞事件。
+
+**测试基座**
+- **starlette TestClient 与 httpx ≥0.28 不兼容**：`Client.__init__() got
+  an unexpected keyword argument 'app'`。别 pin 旧 httpx 迁就 TestClient——
+  直接真 uvicorn 后台线程（bind 端口 0 随机口 + daemon 线程 `server.run`）
+  + `httpx.Client`，更接近端到端。uvicorn 0.29 的 `capture_signals` 在非
+  主线程自动跳过，**不需要** monkey-patch 信号处理。
+- **Web 测试别依赖真摄取**：`core.ingest` 要 PI_BASE/PI_KEY 引擎网关；
+  测试环境种三件套即可（`textdir/{doc_id}.txt` 带 `=== PAGE N ===` 页标 +
+  `store/ingest_manifest.json` + `store/manifest.json` docs 节——`store_docs()`
+  是两者并集，只种一个必漏）；上传路径断言改验文件面（inbox 落盘）而非台账计数。
+- **`J.wait()` 到终态返回状态不抛错**；抛 `JobFailed` 的是 `job_result()`。
+  拿 `assertRaises(JobFailed, J.wait)` 断言必红。
+
+**Jinja2 模板**
+- **`render()` 形参与模板上下文键撞名 = 运行时 500**：`render(name, ...,
+  **ctx)` 遇到 `render("doc.html", request, name=文档名)` 直接
+  `got multiple values for argument 'name'`，且只在带参页面触发、冒烟测试
+  全绿照漏。适配层首参命名要避开一切业务键（`tpl_name`）。
+
+**工具链**
+- **`bin/cenhua` 是 shell 脚本**：测试里 `subprocess.run([sys.executable,
+  CLI, ...])` 会拿 python3 解释 shell 报语法错。直接 `[CLI, ...]`。
+- **coverage `--source` 指模块必须点号包名**：`--source=cenhua_service.docmeta`
+  可；传路径或裸文件名报 module-not-imported / no-data，误以为没测到。
+
+## 14. 真用户端到端测试（v0.5.0 E2E 复盘）
+
+**产品真坑（均已有防回潮测试）**
+- **引擎输出解析正则必须带 `re.M`**：`ADDED_RE = ^\+\s(.+?) -> (\S+)` 缺
+  `re.M` 时 `^`/`$` 只锚整串首尾，真机 pi_ingest 先打 `> converting...`
+  进度行再打 `+ name -> doc_id`，`search()` 永不命中 → **所有真机摄取被
+  误判 failed**（文件误进 `.failed/`、dedupe 漏记 → 重复摄取重复计费）。
+  单测 mock 全返回单行输出所以全绿照漏——**凡解析子进程多行输出的
+  `^`/`$` 正则，用例必须包含"成功行前有进度行"的多行样本**
+  （test_ocr.test_11b）。
+- **Web/API 摄取与 CLI add 语义不对称**：CLI `add()` 在 added>0 时自动
+  `pi_flatten.py`，而 Web/API 走 `core.ingest`（单文件）没有 flatten →
+  新文档无文本层，`find` **静默**漏检（stats 显示 text 4/5 但用户只看到
+  "搜不到"）。修复=flatten 收进 `core.ingest` 成功分支，让所有入口天然
+  一致（test_core.test_52 防回潮）。教训：**"消除手动习惯"的产品承诺
+  必须收敛在 service 层单点，入口层各自补 = 迟早漏一个入口**。
+
+**环境坑（非产品 bug，但会伪装成产品 bug）**
+- **IDE 沙箱注入变量污染常驻服务**：沙箱会话的 `SAFE_RM_*`（写盘白名单
+  仅工作区）会随 `nohup` 继承进 web 服务 → vault 日志写盘 `PermissionError`
+  → 所有请求 500。与 §5 "子进程剥离沙箱变量"同族：**在沙箱内起常驻服务
+  也要 `env -u SAFE_RM_* …`，且排障先看服务日志而非怀疑代码**。
+- **从 shell rc 提取凭证要防多行拼接**：`grep KEY ~/.bashrc | cut -d'"' -f2`
+  匹配到多行时会把两个值用 `\n` 拼进环境变量，httpx 报
+  `Illegal header value`、litellm 包装成"Connection error"——极易误判为
+  网关故障。取值一律 `head -1`，报错先 `printf '%s' "$KEY" | wc -c` 验长度。
+- **curl 表单体必须显式带 charset**：`curl -d "中文=…"` 不带
+  `Content-Type: charset=UTF-8` 时 starlette 按 latin-1 解码 → docmeta
+  中文变 mojibake。浏览器/HTMX 原生 form 自带 charset，**是 curl 的锅不是
+  产品的锅**——e2e 断言中文往返要 `-H "Content-Type:
+  application/x-www-form-urlencoded; charset=UTF-8"` + `--data-urlencode`。
+- **该网关对 curl HTTP/2 会报 (43)**，统一 `--http1.1`；litellm 冷启动
+  还会去拉 GitHub 的 model cost map（内网不可达时只 warning 走本地备份，
+  别误当致命错误）。
+- **e2e 断言脚本 grep 状态词要防误匹配**：`grep '"done"\|"error"'` 会被
+  `"error":""` 空字段命中提前退出轮询；用 json 解析取 `state` 字段判定。

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h3>文档列表（{{ rows|length }} 篇）</h3>
+  <table>
+    <tr><th>文档</th><th>tier</th><th>标签</th><th>笔记</th><th></th></tr>
+    {% for r in rows %}
+    <tr>
+      <td><a href="/doc/{{ r.doc_id }}">{{ r.name }}</a><br><span class="mono">{{ r.doc_id }}</span></td>
+      <td>{{ r.tier }}</td>
+      <td>{% for t in r.tags %}<span class="tag">{{ t }}</span>{% endfor %}</td>
+      <td class="muted">{{ r.note[:60] }}</td>
+      <td><a href="/weave?doc={{ r.doc_id }}">编辑</a> ·
+          <a href="/weave?doc={{ r.doc_id }}#g">关联图</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+{% if sel %}
+<div class="grid2">
+  <div class="card">
+    <h3>标注 · {{ sel.name }}</h3>
+    <form hx-post="/weave/meta" hx-target="#mres" hx-swap="innerHTML">
+      <input type="hidden" name="doc" value="{{ sel.doc_id }}">
+      <p>标签（逗号/空格分隔）</p>
+      <input type="text" name="tags" value="{{ sel.tags|join(', ') }}">
+      <p>笔记</p>
+      <textarea name="note">{{ sel.note }}</textarea>
+      <p><button type="submit">保存</button></p>
+    </form>
+    <div id="mres"></div>
+  </div>
+  <div class="card" id="g">
+    <h3>关联图（Mermaid）</h3>
+    <div hx-get="/relations.part?doc={{ sel.doc_id }}" hx-trigger="load" hx-swap="innerHTML"></div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -113,6 +113,13 @@ def ingest(vault, path) -> IngestResult:
             doc_id = d.get(L.sha1(path), {}).get("doc_id", "") or pre_doc
         except (OSError, KeyError):
             doc_id = pre_doc
+    if status == "added":
+        # 与 CLI add() 语义对齐：新文档立刻 rebuild 文本层，否则 find
+        # 静默漏检（Web/API 上传后"搜不到"即源于此）。离线、增量、秒级。
+        try:
+            L.run_engine("pi_flatten.py", [], vault, capture=True)
+        except Exception:               # flatten 失败不吞掉摄取成功的事实
+            pass
     return IngestResult(status=status, doc_id=doc_id, name=name,
                         error="" if status != "failed" else "ingest failed")
 

@@ -237,6 +237,38 @@ class OcrTest(unittest.TestCase):
         self.assertEqual(rec["name"], "接线.png")
         self.assertEqual(rec["source"], png)
         self.assertTrue(os.path.isfile(rec["stored_as"]))   # original archived
+
+    def test_11b_added_re_survives_multiline_engine_output(self):
+        """防回潮：真机 pi_ingest 输出是多行（先 converting/indexing 进度行，
+        最后一行才是 `+ name -> doc_id`）。ADDED_RE 缺 re.M 时该场景曾被
+        误判 failed（文件误进 .failed/、dedupe 漏记 → 重复计费）。"""
+        m_ocr._ENG = FakeEngine(["多行输出测试 gamma 7"])
+        png = self.src("多行.png")
+        tiny_png(png)
+        man = os.path.join(self.v.store, "ingest_manifest.json")
+        with open(man, "w", encoding="utf-8") as f:
+            json.dump({"pi-multi99": {"name": "多行_ab12cd34.pdf",
+                                      "source": "(ocr cache pdf)",
+                                      "stored_as": "",
+                                      "sha1": "0" * 40,
+                                      "doc_id": "pi-multi99"}}, f)
+        saved = L.run_engine
+
+        def multiline_engine(script, args, vault, capture=False, timeout=None):
+            if script == "pi_ingest.py":
+                return 0, ("> 多行_ab12cd34.pdf: converting...\n"
+                           "> 多行_ab12cd34.pdf: indexing...\n"
+                           "+ 多行_ab12cd34.pdf -> pi-multi99 "
+                           "(26s, gw=gw1, mode=default)\n")
+            return 0, "flattened"
+
+        L.run_engine = multiline_engine
+        try:
+            self.assertEqual(m_ingest.ingest_one(self.v, png), "added")
+        finally:
+            L.run_engine = saved
+        with open(os.path.join(self.v.meta, "dedupe.json")) as f:
+            self.assertEqual(json.load(f)[L.sha1(png)]["doc_id"], "pi-multi99")
         # an OCR cache PDF exists under meta/ocr/
         cache = os.path.join(self.v.meta, "ocr")
         self.assertTrue(any(f.endswith(".pdf") for f in os.listdir(cache)))

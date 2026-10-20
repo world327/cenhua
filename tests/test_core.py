@@ -153,6 +153,34 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(core.VaultStats().schema_version, 1)
         self.assertEqual(core.Relation().schema_version, 1)
 
+    def test_52_ingest_added_triggers_flatten(self):
+        """防回潮：core.ingest 成功必须自动 rebuild 文本层。
+
+        Web/API 上传曾走 core.ingest 而缺 flatten，新文档 find 静默
+        不可见（"上传后搜不到"），与 CLI add() 语义不一致。
+        """
+        import m_ingest
+        calls = []
+        orig_one, orig_re = m_ingest.ingest_one, L.run_engine
+        orig_sha1 = L.sha1
+        try:
+            m_ingest.ingest_one = lambda v, p, quiet=False: "added"
+            L.sha1 = lambda p: "sha1-fake"
+            m_ingest.dedupe_index = lambda v: {}
+
+            def fake_re(script, args, vault, capture=False, **kw):
+                calls.append(script)
+                return 0, "rebuilt 1"
+
+            L.run_engine = fake_re
+            ir = core.ingest(self.vault, os.path.join(_TEST_HOME, "bad.zip"))
+            self.assertEqual(ir.status, "added")
+            self.assertIn("pi_flatten.py", calls)
+        finally:
+            m_ingest.ingest_one = orig_one
+            L.run_engine = orig_re
+            L.sha1 = orig_sha1
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <form method="get" action="/search" class="row">
+    <input type="text" name="q" value="{{ q }}" placeholder="关键词（空格分词）或问题" style="flex:1" autofocus>
+    <select name="mode" style="width:auto">
+      <option value="find" {{ 'selected' if mode=='find' }}>find · 即时检索</option>
+      <option value="query" {{ 'selected' if mode=='query' }}>query · 引用问答</option>
+      <option value="ask" {{ 'selected' if mode=='ask' }}>ask · LLM 深读</option>
+    </select>
+    <button type="submit">执行</button>
+  </form>
+  <p class="muted">find = 词命中 + 页/行定位（零成本）；query/ask = LLM 长任务，进度经 SSE 流式显示。</p>
+</div>
+
+{% if q and mode == 'find' %}
+<div class="card">
+  <h3>命中 {{ hits|length }} 处 · {{ groups|length }} 篇</h3>
+  {% for (doc, name), hs in groups.items() %}
+    <h4><a href="/doc/{{ doc }}">{{ name }}</a> <span class="mono">{{ doc }}</span></h4>
+    <table>
+      {% for h in hs[:30] %}<tr><td class="mono">{{ h.term }}</td><td>{{ h.page }}</td><td class="mono">{{ h.line }}</td></tr>{% endfor %}
+      {% if hs|length > 30 %}<tr><td colspan="3" class="muted">… 其余 {{ hs|length - 30 }} 处省略</td></tr>{% endif %}
+    </table>
+  {% endfor %}
+  {% if not hits %}<p class="muted">没有命中。换词，或试 query/ask 模式。</p>{% endif %}
+</div>
+{% endif %}
+
+{% if job %}
+<div class="card">
+  <h3>{{ 'Query' if mode=='query' else 'Ask' }} · {{ q }}</h3>
+  <div id="log" data-job="{{ job }}" data-status-url="/api/v1/jobs/{{ job }}" class="joblog"></div>
+  <script src="/static/joblog.js"></script>
+  <p class="muted">引文与成本在流尾；引擎全文以任务通道逐行推送。</p>
+</div>
+{% endif %}
+{% endblock %}

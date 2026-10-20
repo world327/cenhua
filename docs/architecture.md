@@ -270,6 +270,31 @@ hint 二段验证成本进 ROI 账：query 台账记 `hint_docs`/`hint_dropped`�
 `refine.roi_lines` 并入 `cenhua refine` 状态视图（验证成本倒贴生产成本时
 重新评估 hint 段价值）。
 
+### 2.24 `cenhua_service/webui/` — 本地 Web UI + 局域网 API（M3b）
+
+四件套薄适配层，**零业务逻辑**（一切走 `core`/`jobs`/`docmeta` service）：
+
+- `security.py`：`resolve_token`（`CENHUA_API_TOKEN` env > vault.yaml
+  `api_token`）+ `check_token` fail-closed 双拒（未配置拒一切、空 token 拒，
+  `hmac.compare_digest` 常数时间）+ `RateLimiter` 滑动窗口（超限 429 +
+  `Retry-After`）。纯标准库，可脱离 fastapi 单测。
+- `api.py`：`build_router(vault, deps)` → `/api/v1/*`（ingest/documents/
+  stats/find/query/ask/digest/relations/docmeta/jobs…）；长任务端点返回
+  `job_id`+`events_url`；`graph`/`draft` 恒 404 + 版本提示（随 M4 交付）。
+  错误统一 `{"detail": {error, detail, schema_version}}`；未知 job 恒定
+  `aborted/stale`（200 而非 404，与 ADR-001 口径一致）。
+- `pages.py`：Jinja2+HTMX 四页（摄取/检索/编织/洞察浏览）+ `/login`
+  httpOnly cookie 会话；insights 正文渲染前消毒（`<script>`/onerror）+
+  文件名防穿越。
+- `app.py`：`create_app(vault, rate)` rid 中间件（响应头 `X-Cenhua-Rid`，
+  结构化日志 `logs/web-YYYYMM.log`）；`serve()` uvicorn 薄调用，
+  `timeout_keep_alive` 配置驱动（F8 无 Nginx 依赖）。
+- SSE：`GET /api/v1/jobs/{id}` 把 `job_status` 增量 cursor 协议转事件流；
+  断线重连带 cursor 只重放未消费段（任务通道薄适配，无独立状态）。
+
+`scripts/m_webui.py` 仅 argparse + `serve_cmd`（CLI 入口白名单口径，
+test_71）。
+
 ## 3. 关键数据流
 
 ### 3.1 摄取（含本地 OCR）
@@ -376,6 +401,10 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 | `CENHUA_REFINE_BUDGET_CNY` | env | `0`（拒绝） | refine 预算硬闸，CNY；USD 报价按保守汇率折算比较（M1b） |
 | `CENHUA_SMALL_CORPUS_N` | env | `200` | 小库模式阈值：N 低于该值用降档参数（M1b） |
 | `CENHUA_MIN_CONTENT_CHARS` | env | `100` | 网页正文守卫下限（渲染/静态共用）（M2a） |
+| `CENHUA_API_TOKEN` | env / vault.yaml `api_token` | —（未配置=拒绝一切） | Web/API 单用户 token，fail-closed（M3b） |
+| `CENHUA_WEB_HOST` / `CENHUA_WEB_PORT` | env / vault.yaml `web_host` / `web_port` | `127.0.0.1` / `8765` | Web 监听地址/端口（M3b） |
+| `CENHUA_WEB_RATE_CALLS` / `CENHUA_WEB_RATE_WINDOW_S` | env / vault.yaml `web_rate_calls` / `web_rate_window_s` | `30` / `60` | 滑动窗口限流（M3b） |
+| `CENHUA_WEB_HEARTBEAT_S` / `CENHUA_WEB_KEEPALIVE_S` | env / vault.yaml `web_heartbeat_s` / `web_keepalive_s` | `10` / `120` | SSE 心跳间隔 / uvicorn keep-alive 秒（M3b） |
 
 ## 6. 扩展点
 

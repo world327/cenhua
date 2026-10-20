@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="grid2">
+  <div class="card">
+    <h3>文件上传</h3>
+    <div id="drop" class="drop">拖文件到这里，或
+      <input type="file" id="f" style="width:auto;border:0">
+    </div>
+    <div id="fres" hx-swap-oob="true"></div>
+    <div id="out"></div>
+  </div>
+  <div class="card">
+    <h3>URL 摄取（渲染抓取，走任务通道）</h3>
+    <form hx-post="/ingest/url" hx-target="#ures" hx-swap="innerHTML">
+      <div class="row">
+        <input type="url" name="url" placeholder="https://example.com/report" required style="flex:1">
+        <button type="submit">抓取</button>
+      </div>
+      <label class="muted"><input type="checkbox" name="render" checked> JS 渲染（Playwright）</label>
+    </form>
+    <div id="ures"></div>
+  </div>
+</div>
+<div class="card">
+  <h3>当前库</h3>
+  <p class="muted">docs {{ stats.docs }} · text 就绪 {{ stats.text_have }} / 缺失 {{ stats.text_missing }} / 空 {{ stats.text_empty }} · inbox 待处理 {{ stats.inbox_pending }} · 失败区 {{ stats.failed_count }}</p>
+  <p class="muted">摄取后若 text 缺失，跑 <code>cenhua flatten</code> 补文本层。</p>
+</div>
+<script>
+(function(){
+  var drop=document.getElementById('drop'), f=document.getElementById('f'), out=document.getElementById('out');
+  ['dragover','dragenter'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add('over');});});
+  ['dragleave','drop'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove('over');});});
+  drop.addEventListener('drop',function(e){ if(e.dataTransfer.files.length){ upload(e.dataTransfer.files[0]); }});
+  f.addEventListener('change',function(){ if(f.files.length) upload(f.files[0]); });
+  function upload(file){
+    var fd=new FormData(); fd.append('file',file);
+    out.innerHTML='<p class="muted">uploading '+file.name+' …</p>';
+    fetch('/ingest/file',{method:'POST',body:fd}).then(function(r){return r.text();}).then(function(t){out.innerHTML=t;});
+  }
+})();
+</script>
+{% endblock %}

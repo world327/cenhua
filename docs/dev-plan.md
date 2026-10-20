@@ -505,14 +505,14 @@ cost/bench 入 service。
 
 ### 7.4 Definition of Done
 
-- [ ] §7.3 任务 1-13 全绿
-- [ ] Web UI 四页（摄取/检索/编织/洞察浏览）独立运行
-- [ ] **创造页只读 digest**（F4；草稿编辑/引文悬浮/版本对比移 M4）
-- [ ] 局域网 API `/api/v1/*` 端点挂到 service 层
-- [ ] 单用户 token + fail-closed 白名单（清除租户残肢）
-- [ ] SSE 是任务通道的薄适配（断线重连按 handle 重订阅）
-- [ ] `GET /api/v1/graph` 与 `POST /api/v1/draft` 在 v0.5 返回 404 + 版本提示
-- [ ] uvicorn `timeout_keep_alive` 配置（无 Nginx 反代依赖）
+- [x] §7.3 任务 1-13 全绿
+- [x] Web UI 四页（摄取/检索/编织/洞察浏览）独立运行
+- [x] **创造页只读 digest**（F4；草稿编辑/引文悬浮/版本对比移 M4）
+- [x] 局域网 API `/api/v1/*` 端点挂到 service 层
+- [x] 单用户 token + fail-closed 白名单（清除租户残肢）
+- [x] SSE 是任务通道的薄适配（断线重连按 handle 重订阅）
+- [x] `GET /api/v1/graph` 与 `POST /api/v1/draft` 在 v0.5 返回 404 + 版本提示
+- [x] uvicorn `timeout_keep_alive` 配置（无 Nginx 反代依赖）
 - [ ] §1.3 DoD 模板全部勾选
 
 ### 7.5 风险点与对策
@@ -690,7 +690,7 @@ cost/bench 入 service。
 | README 形态叙述同步（R1 遗留，仍未关闭） | ✅ 已完成（命令速查/Layout 同步至 v0.3.3） | v0.3.3 · M2b |
 | architecture.md 同步补 service 层架构（M1a 起）+ 任务通道架构（M3a 起）+ hint 两段式 prompt 架构（**M2b 起**，F3） | ✅ 已完成（§2.11/§2.17-2.23 全部落地） | v0.4.0 · M3a |
 | `max_llm_calls` → `CENHUA_MAX_LLM_CALLS` 迁移需兼容旧 env 名一个版本（deprecation warning） | 📋 待 | M1a |
-| `CENHUA_API_ALLOWED_AGENTS` 删除迁移：旧配置读取时 warn 并降级为单 token 模式（T8.2） | 📋 待 | M3b |
+| `CENHUA_API_ALLOWED_AGENTS` 删除迁移：旧配置读取时 warn 并降级为单 token 模式（T8.2） | ✅ 已关闭（该变量从未进入任何已发布版本代码，v0.5 是 API 首发即单 token 模式——无旧配置需迁移，不设 warn 代码） | v0.5.0 · M3b |
 | **★ 任务通道持久化边界**（R2/R3/R4 连续三轮预告） | ✅ 已裁决（2026-10-16 用户拍板：**重启后标废**——纯内存态任务通道，进程重启后未完成 jobs 标 `aborted(stale)`；理由：实现最简、digest/ask 重跑成本低、CLI-only 场景进程退出即任务终点，M3b SSE 断线重连按 handle 重订阅不依赖持久化。ADR 见 architecture.md §2.20） | M3a |
 
 ---
@@ -704,8 +704,8 @@ cost/bench 入 service。
 | M1b | v0.3.2 | ✅ 已交付（邮件展开+编织层，5+28 测试全绿，commit b3d5a7b） | 16 任务日 | 4-5 周 |
 | M2a | v0.3.0 | ✅ 已交付（代码+测试+文档已落地，全套件全绿） | 12.5 任务日 | 3-4 周 |
 | M2b | v0.3.3 | ✅ 已交付（query 四段+hint 两段式+拒答门禁，38 测试全绿） | 13 任务日 | 3-4 周 |
-| M3a | v0.4.0 | 📋 规划（工程难度最高点） | 20 任务日 | 5-6 周 |
-| M3b | v0.5.0 | 📋 规划 | 17 任务日 | 4-5 周 |
+| M3a | v0.4.0 | ✅ 已交付（digest+任务通道+hint 硬化，commit c35edc8） | 20 任务日 | 5-6 周 |
+| M3b | v0.5.0 | ✅ 已交付（Web UI 四页+局域网 API，webui 45 测试全绿/覆盖率 81%） | 17 任务日 | 4-5 周 |
 | M4 | v0.6.0 | 📋 规划（范围最广） | 25.5 任务日 | 6-7 周 |
 
 **主线总粒度**：约 108 任务日（M1a+M1b+M2b+M3a+M3b+M4）；M2a 独立支线 12.5 任务日。

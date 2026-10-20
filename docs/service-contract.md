@@ -78,7 +78,7 @@ class CostEstimate:
 
 | 函数 | 签名 | 说明 |
 |---|---|---|
-| `ingest` | `ingest(vault, path) -> IngestResult` | 摄取单文件 |
+| `ingest` | `ingest(vault, path) -> IngestResult` | 摄取单文件；status=added 时自动 rebuild 文本层（pi_flatten，失败不翻转摄取结果），与 CLI add 语义一致（E2E 防回潮 test_core.test_52） |
 | `find` | `find(vault, terms, ...) -> list[FindHit]` | 离线精确检索 |
 | `query` | `query(vault, question, ...) -> QueryResult` | 语义检索（M2b 起 hint 两段式） |
 | `related` | `related(vault, doc) -> list[Relation]` | 关联（M1b 迁入） |
@@ -312,6 +312,66 @@ class VaultStats:
 | `core.channel_job` | `(kind, fn, *args, **kwargs) -> jobs.JobSpec` | 长任务→任务通道统一适配（M3a 任务 4）：fn 返回带 `lines`/`cost` 的 dataclass（AskResult/QueryResult/DigestResult），body 逐行 emit + cost 映射 `JobRuntime.add_cost`（cost 键 docs/calls/est_cost/currency） |
 
 ---
+
+### 3.6 M3b 新增模块与函数（本地 Web UI + 局域网 API，登记制先行）
+
+**放位与约束**：适配层住 `cenhua_service/webui/`（可导入、可单测）；
+`scripts/m_webui.py` 只做 argparse + uvicorn.run（归入 CLI 入口白名单，
+与 m_cenhua 同级，test_71 口径）。依赖 `fastapi / jinja2 / uvicorn`
+**延迟导入**（只在 `create_app`/`serve` 内 import），core 层零污染；
+requirements.txt 增补 `fastapi>=0.110 jinja2>=3.1 uvicorn>=0.29`（F8：
+Nginx 仅可选部署附件，不进依赖清单）。
+
+`cenhua_service/webui/security.py`：
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `check_token` | `(vault, provided: str) -> bool` | **fail-closed**：`CENHUA_API_TOKEN` env > vault.yaml `api_token`；**未配置 token = 拒绝一切**（空 token 也拒）；常数时间比较（`hmac.compare_digest`）；T8.2 无租户/用户映射残肢 |
+| `RateLimiter` | `(max_calls: int, window_s: float)`；`allow(key) -> bool` | 滑动窗口限流（与 OCR 服务同款模式）；超限 → API 429 / 页面 429 文本 |
+
+`cenhua_service/webui/api.py` — `build_router(vault, deps) -> fastapi.APIRouter`：
+
+- 端点挂 service 函数零业务逻辑：`POST /api/v1/ingest`（multipart 落 inbox →
+  `core.ingest`）、`GET /api/v1/documents`、`POST /api/v1/find`、
+  `POST /api/v1/query`、`POST /api/v1/ask`、`POST /api/v1/digest`、
+  `GET /api/v1/relations?doc=`（长任务走 `jobs.submit` 返回 handle）。
+- dataclass 序列化：`dataclasses.asdict` 透传；所有响应顶层带
+  `schema_version`；错误响应 `{"error": 用户可读, "detail": ...}` 统一形态。
+- `GET /api/v1/jobs/{handle}` SSE：`jobs.job_status(handle, cursor)` 增量转
+  `event: chunk/progress/done/failed`，空闲 10s 发 `event: heartbeat` 注释行；
+  断线按 handle 重订阅（cursor 从 0 幂等重放），stale 返回终态
+  `aborted/stale`（ADR-001）。
+- 版本脚注：`GET /api/v1/graph`、`POST /api/v1/draft` v0.5 恒 404 +
+  `{"message": "v0.6 起，随 M4 交付"}`（R2-R10/R3-T8.1/R4-F4）。
+
+`cenhua_service/webui/pages.py` — Jinja2+HTMX 四页（摄取/检索/编织/洞察浏览）：
+只调用 `core.*`/`tier.*`/`digest.*`/`docmeta.*` 既有函数与 `*_lines` 渲染行，
+零业务逻辑；创造页**只读 digest**（F4，草稿编辑移 M4）。
+页面鉴权：与 API 同一 `check_token`（fail-closed），通过后落 httpOnly cookie
+`cenhua_token`；未鉴权 → 极简 token 输入页，零会话状态存服务端。
+EventSource 无法携带自定义 header，故 API 鉴权额外接受**同源 cookie**
+`cenhua_token` 回退（页面登录时落；纯 header 客户端不受影响）。
+
+`cenhua_service/docmeta.py`（编织页任务 4 的"标签/笔记"最小 service 面）：
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `load` | `(vault) -> dict[doc_id, {"tags": [...], "note": str}]` | 读 `meta/docmeta.json`，缺失/损坏返回 `{}`（降级不抛） |
+| `get` | `(vault, doc_id) -> DocMeta{doc_id, tags, note}` | 单文档视图，未标注返回空值 |
+| `update` | `(vault, doc_id, tags=None, note=None) -> DocMeta` | None=不改该字段；tags 去空去重保序；**tmp+rename 原子写**（AGENTS §1） |
+
+API 面：`GET /api/v1/docmeta?doc=`、`POST /api/v1/docmeta`（body
+`{doc, tags?, note?}`）。CLI 面 M3b 不做（Web 专属编辑，避免双入口漂移）。
+
+`cenhua_service/webui/app.py`：
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `create_app` | `(vault, token=None, rate=None) -> FastAPI` | 组装：rid 中间件（uuid4 短码，响应头 `X-Cenhua-Rid` + `vault.log("web", ...)` 结构化行）→ token/限流依赖 → api router + pages；`timeout_keep_alive` 走 uvicorn 配置（任务 11） |
+| `serve` | `(vault, host, port) -> None` | uvicorn.run 薄调用；host/port/token 全部 config 驱动（`CENHUA_WEB_HOST/PORT` env > vault.yaml `web_host/web_port` > 默认 `127.0.0.1:8765`），零硬编码 |
+
+**日志**：Web 层独立流 `logs/web-YYYYMM.log`（复用 `Vault.log`），行含
+rid/方法/路径/状态/耗时——结构化 + 全链路追踪，不外泄 token。
 
 ## 4. `schema_version` 演进记录
 

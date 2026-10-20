@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card row">
+  <h3 style="margin:0">{{ name or doc_id }}</h3>
+  <span class="mono">{{ doc_id }}</span>
+  <span style="margin-left:auto"><a href="/weave?doc={{ doc_id }}">标注 / 关联图</a></span>
+</div>
+<pre class="docbody">{{ body }}</pre>
+{% endblock %}

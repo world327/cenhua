@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CENHUA · 登录</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="center">
+<form class="card" method="post" action="/login">
+  <h1>CENHUA {{ version }}</h1>
+  {% if not has_token %}
+  <p class="bad">服务端未配置 API token（fail-closed 拒绝一切）。<br>
+  请设置 <code>CENHUA_API_TOKEN</code> 或 vault.yaml 的 <code>api_token</code> 后重启。</p>
+  {% else %}
+  {% if bad %}<p class="bad">token 不对，再试一次。</p>{% endif %}
+  <input type="password" name="token" placeholder="API token" autofocus required>
+  <button type="submit">进入</button>
+  {% endif %}
+</form>
+</body>
+</html>

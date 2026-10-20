@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CENHUA · {{ page|default('web') }}</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/htmx.min.js"></script>
+<script src="/static/mermaid.min.js"></script>
+{% if page == 'weave' %}<script>mermaid.initialize({startOnLoad:false});</script>{% endif %}
+</head>
+<body>
+<header>
+  <span class="brand">CENHUA {{ version }}</span>
+  <nav>
+    <a href="/ingest" class="{{ 'on' if page=='ingest' }}">摄取</a>
+    <a href="/search" class="{{ 'on' if page=='search' }}">检索</a>
+    <a href="/weave" class="{{ 'on' if page=='weave' }}">编织</a>
+    <a href="/insights" class="{{ 'on' if page in ('insights','digest_view') }}">洞察</a>
+    <a href="/logout" class="out">退出</a>
+  </nav>
+  <span class="muted">docs {{ stats.docs }} · text {{ stats.text_have }} · inbox {{ stats.inbox_pending }}{% if not stats.gateway_ready %} · <b class="bad">网关未配置</b>{% endif %}</span>
+</header>
+<main>
+{% block body %}{% endblock %}
+</main>
+</body>
+</html>

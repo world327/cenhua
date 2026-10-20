@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card row">
+  <h3 style="margin:0">{{ fname }}</h3>
+  <span class="muted" style="margin-left:auto">只读 · 编辑随 M4 交付</span>
+  <a href="/insights">列表</a>
+</div>
+<article class="md">{{ body|safe }}</article>
+{% endblock %}

@@ -78,6 +78,8 @@ WEAVING   related <doc> · link <A> <B> · link --ban <E1> <E2> · hub ·
           weave rebuild · refine [--all --dry-run | --drain [--force]]
 COST      cost [--month YYYY-MM]     成本月报，按命令分组，摄取成本单列首位
 QUALITY   bench [--corpus]           质量门禁：fixture（阻断）/ 用户库（报告）
+WEB       web [--host H] [--port P]  本地 Web UI + 局域网 API
+          （默认 127.0.0.1:8765；v0.5.0 起，需 CENHUA_API_TOKEN）
 ```
 
 ## 4. 日常使用
@@ -299,6 +301,61 @@ cenhua digest --since 2026-09-01     # 自定义起点（与三周期互斥）
   `CENHUA_DIGEST_HINT_DOCS` / vault.yaml `digest_hint_docs` 可调）时
   watch 日志提示一句，生成永远由人发起（F10）。
 - 命名版本集中一处生成（`_V{N}_` 自动递增），cron 定时跑安全。
+
+### 4.4c Web UI 与局域网 API（v0.5.0 · M3b 起）
+
+一条命令起本地 Web 服务，四页界面 + `/api/v1/*` JSON API，全部是既有
+service 层的**薄适配**（无独立业务逻辑；Web 挂了 CLI 完全不受影响）。
+
+```bash
+export CENHUA_API_TOKEN=一串自己的长随机串     # 必需，fail-closed
+cenhua web                                     # 默认 127.0.0.1:8765
+cenhua web --host 0.0.0.0 --port 9000          # 开放局域网（务必先配 token）
+```
+
+**鉴权（fail-closed）**：token 解析顺序 `CENHUA_API_TOKEN` env >
+vault.yaml `api_token`；**未配置 = 所有页面和 API 一律拒绝**（API 401、
+页面重定向 /login）。页面用登录后的 httpOnly cookie 会话；程序化调用带
+`X-Cenhua-Token: <token>`（或 `Authorization: Bearer <token>`）头。
+滑动窗口限流（默认 30 次/60 秒）超限返回 429 + `Retry-After` 头。
+
+**四页**（浏览器打开 http://127.0.0.1:8765 自动跳 /login）：
+
+| 页面 | 路径 | 功能 |
+|---|---|---|
+| 摄取 | `/ingest` | 拖拽上传 / URL 收录，SSE 实时进度，失败可重试 |
+| 检索 | `/search` | 命中 + 延展 + 引文 snippet + 关联四段结果 |
+| 编织 | `/weave` | 文档列表 + 标签/笔记编辑 + Mermaid 关联图 |
+| 洞察 | `/insights` | digest 产物只读浏览（草稿编辑随 M4 交付） |
+
+**API 端点**（前缀 `/api/v1`，响应均带 `schema_version`）：
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/ingest` | POST | multipart 文件上传，同步摄取 |
+| `/documents` `/stats` | GET | 文档台账 / 库状态 |
+| `/find` | POST | 离线精确检索（零 LLM） |
+| `/query` `/ask` `/digest` | POST | 长任务 → 返回 `job_id` + `events_url` |
+| `/relations` | GET | 关联层查询 |
+| `/docmeta` | GET·POST | 文档标签/笔记读写 |
+| `/jobs/{id}/status` `/jobs/{id}/result` | GET | 任务状态（增量 cursor）/ 结果 |
+| `/jobs/{id}` | GET(SSE) | 任务进度流；断线带 cursor 重连只重放未消费段 |
+| `/graph` `/draft` | — | v0.5 恒 404 + 版本提示（随 M4 v0.6 交付） |
+
+每个请求分配全链路 rid，响应头 `X-Cenhua-Rid`，结构化日志落
+`vaults/<库>/logs/web-YYYYMM.log`（token 不落盘）。
+
+**配置键**（优先级 env > vault.yaml > 默认）：
+
+| 用途 | env | vault.yaml | 默认 |
+|---|---|---|---|
+| 监听地址/端口 | `CENHUA_WEB_HOST` / `CENHUA_WEB_PORT` | `web_host` / `web_port` | `127.0.0.1` / `8765` |
+| SSE 心跳间隔 | `CENHUA_WEB_HEARTBEAT_S` | `web_heartbeat_s` | 10 秒 |
+| keep-alive 超时 | `CENHUA_WEB_KEEPALIVE_S` | `web_keepalive_s` | 120 秒 |
+| 限流 | `CENHUA_WEB_RATE_CALLS` / `CENHUA_WEB_RATE_WINDOW_S` | `web_rate_calls` / `web_rate_window_s` | 30 次 / 60 秒 |
+
+无需 Nginx 反代；如需接入现有反代，SSE 路径记得关缓冲
+（`proxy_buffering off`）并把读超时调到分钟级。
 
 ### 4.5 溯源
 

@@ -27,7 +27,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENGINE = os.path.join(HERE, "engine")
 SKILL_DIR = os.path.dirname(HERE)          # <skill>/scripts -> <skill>
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 # ---------------------------------------------------------- storage root ----
 # Where vaults (documents, indexes, archived originals) live is a USER
