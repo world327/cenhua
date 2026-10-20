@@ -591,6 +591,53 @@ cost/bench 入 service。
 | draft 全库扫描成本 | all-or-nothing + 独立预算；超预算拒启 |
 | 断点续跑不做 | 失败重跑从头估价；长任务幂等由 `rid` 保证可审计 |
 
+### 8.6 分批实施计划（2026-10-20 拍板）
+
+M4 共 20 任务，按"每批可独立验收 + 独立全量回归 + 独立提交"切三批。M3b 已发布
+（145fee4），故 R2-R8 条件成立，Web 力导向图与草稿编辑三件套**正常交付不跳过**。
+
+| 批次 | 版本 | 覆盖任务 | 交付形态 |
+|---|---|---|---|
+| **M4a** | v0.6.0 | 1,2,3,4,5（图谱）+ 7,8,9,10（draft 闭环）+ 17,18（入 service + 防回潮） | **纯 CLI**：`cenhua graph entity/path/cluster` + Mermaid；`cenhua draft` 全流程与五子命令 + `--verify` |
+| **M4b** | v0.6.1 | 6（力导向图）、11（★草稿编辑三件套）、16（`GET /graph` + `POST /draft` 替换 404 桩） | **Web + API**：图谱可视化、草稿在线编辑/引文悬浮/版本对比 |
+| **M4c** | v0.6.2 | 12,13（模板 + 导出）、14,15（多轮、重排）+ 19,20（套件与文档收尾） | 模板系统 + MD/HTML/PDF 导出 + 召回质量增强 |
+
+**批次边界**：M4a 不碰任何 Web/API 文件（图谱与 draft 的 service 函数先落
+`cenhua_service/graph.py` / `draft.py`，UI 层零改）；M4b 只做薄包装（test_70/71
+纪律不破）；14/15 排最后——多轮上下文与重排的 Top-K 提升需要 M4a/M4b 产出的真实
+召回数据做基线，先做无从量化（roadmap §6.6 原文即"v0.6+ 评估"）。
+
+**复用清单（实证，禁止重造）**
+
+| 需求 | 复用点 |
+|---|---|
+| 图谱节点/边/权重 | `relations.entity_index` L159、`load_relations` L359、`npmi` L130、`_auto_weight`（自动边 ≤0.6）L237 |
+| 实体抽取规则路 | `summaries.extract_entities` L132（money/date/email/id/capitalized）+ `relations.ensure_summaries` L242 |
+| LLM 精化路 | `refine.call_llm` L150 + `_parse_llm_json` L174 + `refine_one` 的 fallback 范式 |
+| draft 三闸 | `digest.budget_check` L113 + `cost.longjob_max_cost_cny` L371 |
+| 引文校验与穿透 | `query.verify_citations(vault, citations)` L208（内含 `verify.verify_citation` + `tier.penetration`） |
+| 归档回流 tier | 照抄 `digest.ingest_back` L548（copy → inbox → `core.ingest` → 原子改 tier） |
+| 长任务通道 | `core.channel_job` L377 + flow 返回 `dataclass(lines, cost)` → CLI 心跳与 SSE 同时获得 |
+| 版本管理 | `digest._next_version` L419（`<主题>_V{N}_{日期}.md` 扫描范式） |
+| MD→HTML / MD→PDF | `webui.pages._md_to_html` L75（已消毒）、引擎 `pi_ingest.html_to_pdf` L212（insert_htmlbox + 0.85 完整性校验）——**service 层 import 调用，引擎字节不可改** |
+
+**开工前必读的 7 条约束**
+
+1. `cost.py` 有两段重复定义（L199-277 被 L280-361 覆盖）；draft 估价**必须按后段签名**
+   `estimate_docs(model, texts, tokens_out_per=1400)` 调用。
+2. LLM 调用**只能走 `refine.call_llm`**（三个测试套件唯一打桩点）；自写调用 = 离线套件
+   无法零网关运行。
+3. `api.py` 两个 404 桩（L288-295）**未挂 `dependencies=guard`**、错误体是裸
+   `{"detail"}`；落地成真端点时须补鉴权并统一 `err()` 形态。
+4. 图谱建边入口**只认 `primary_docs()`**；draft/digest 是 derived-doc，绝不进实体共现
+   （防噪音炸弹，§7.3）。
+5. `verify.verify_citation` 真实签名首参是 `vault`（本节任务 9 与 roadmap §7.4 写的
+   `(doc, page, snippet)` 是简写）；M4a 顺手纠正契约文档措辞。
+6. 新增子进程输出解析点一律带 `re.M`，并配"成功行前有进度行"的多行样本
+   （v0.5.0 E2E 实测坑，pitfalls §14）。
+7. `works/drafts/` 是全新目录（现仅 `digests/`、`snapshots/` 被代码使用），需自行
+   `makedirs`；draft 回流后的 tier 改写必须原子（撞 test_61 字节级校验 = 台账变砖）。
+
 ---
 
 ## 9. 风险登记册（合并 roadmap §13 + 实施期）

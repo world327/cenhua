@@ -73,6 +73,11 @@ DEEP READ ask [--doc kw | --all] "q" [--limit N] [--dry-run]   (成本护栏)
 INSIGHT   digest --weekly | --monthly | --quarterly | --since YYYY-MM-DD
           [--dry-run] [--force] [--max-cost N]
           四节洞察文章，自动回流入库 tier=derived-doc（v0.4.0 起）
+GRAPH     graph entity <实体> · path <A> <B> · cluster · mermaid ·
+          rebuild · triples [--doc kw|--all] [--limit N]（v0.6.0 起）
+DRAFT     draft "主题" [--top N] · --extend/--rewrite <段号> ·
+          --list · --diff "主题" Va Vb · --verify · --restore <版本>
+          产物 works/drafts/<主题>_V{N}_<日期>.md，tier=derived-doc（v0.6.0 起）
 SEMANTIC  index build|status · seek "question"     (可选向量层)
 WEAVING   related <doc> · link <A> <B> · link --ban <E1> <E2> · hub ·
           weave rebuild · refine [--all --dry-run | --drain [--force]]
@@ -356,6 +361,49 @@ vault.yaml `api_token`；**未配置 = 所有页面和 API 一律拒绝**（API 
 
 无需 Nginx 反代；如需接入现有反代，SSE 路径记得关缓冲
 （`proxy_buffering off`）并把读超时调到分钟级。
+
+### 4.4d 知识图谱 `graph` 与主题草稿 `draft`（v0.6.0 · M4a 起，纯 CLI）
+
+**图谱**（实体共现图离线可建，LLM 三元组按需花钱）：
+
+```bash
+cenhua graph rebuild                 # 离线重建：规则实体 × 共现 + 已有三元组加权
+cenhua graph entity 违约金            # 实体邻域（含出处文档）
+cenhua graph path 甲公司 乙公司        # 两实体最短路径（BFS）
+cenhua graph cluster --top 10        # 枢纽聚簇
+cenhua graph mermaid [实体]           # Mermaid 文本（可直接贴飞书 markdown）
+cenhua graph triples --doc 合同 --dry-run   # LLM 三元组：先估价（三闸同 digest）
+cenhua graph triples --all --force          # 正式抽取（网关+预算闸）
+```
+
+- 图数据落 `meta/graph.json` / `meta/triples.jsonl`（原子写），查询全离线零 LLM。
+- 入图实体只来自 **primary 文档**；LLM 抽不出的关系宁缺毋滥（谓词白名单），
+  解析失败自动降级规则兜底（同文档共现 → `同时提及` 边）。
+
+**主题草稿**（roadmap §7.4 闭环：召回 → 生成 → 引文穿透 → 存档）：
+
+```bash
+cenhua draft "合同违约条款演变" --dry-run   # 先看账：召回文档 + calls + 金额
+cenhua draft "合同违约条款演变"             # 生成 V1（长任务通道，实时进度）
+cenhua draft "合同违约条款演变" --extend 2  # 在第 2 段基础上追加（出 V2）
+cenhua draft "合同违约条款演变" --rewrite 1 # 重写第 1 段（出新版本）
+cenhua draft --list                        # 版本序列
+cenhua draft --diff "合同违约条款演变" 1 2 # 版本差异
+cenhua draft --verify                      # 离线重验全部草稿引文（rc=1 有失败）
+cenhua draft "合同违约条款演变" --restore 1 # 旧版本另存为最新版本
+```
+
+规则与习惯：
+
+- 召回**只认 primary 文档**（digest/草稿等派生物永不作为证据）；每段引文
+  `[doc前8位 P页] + 逐字 snippet`，与门禁 `bench` 同一校验器，校验不过标 `✗`。
+- 产物落 `works/drafts/<主题>_V{N}_<日期>.md`（tier=derived-doc，检索默认
+  不召回），并自动回流入库（台账 `tier=derived-doc` + `derived_from` 链，
+  同 digest；回流失败不影响草稿）；`draft --verify`  rc=0 全过 / 1 有失败 / 2 未匹配。
+- **rid 幂等**：同主题+同段+同证据集重复提交直接复用既有产物（`mode=cached`），
+  零花费；三闸与 digest 完全一致（`--dry-run` → 预算闸 rc=4 → `--force`/`--max-cost`）。
+- 无网关或 LLM 输出解析失败 → 规则兜底（原文摘录小节 + 明示"需 LLM"），
+  绝不硬编（calls=0）。
 
 ### 4.5 溯源
 

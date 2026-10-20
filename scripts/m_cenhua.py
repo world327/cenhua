@@ -92,8 +92,30 @@ KNOWLEDGE WEAVING (offline unless refining)
   link --ban <entA> <entB>          suppress an entity pair forever          [OFFLINE]
   hub                               hub entities for review + current tier   [OFFLINE]
   weave rebuild                     rebuild relations.jsonl                  [OFFLINE]
+
   refine [--all --dry-run|--drain]  rule summaries -> LLM refinement queue;
                        [--force]     budget gate: CENHUA_REFINE_BUDGET_CNY
+
+KNOWLEDGE GRAPH (M4a; offline unless extracting triples)
+  graph entity <实体> [--limit N]   df + mentioning docs + neighbour entities [OFFLINE]
+  graph path <A> <B> [--max-hops N] shortest relation path between entities   [OFFLINE]
+  graph cluster [--top N]           connected entity clusters = topics        [OFFLINE]
+  graph mermaid [<实体>]            Mermaid render (paste into feishu/md)     [OFFLINE]
+  graph rebuild                     rebuild meta/graph.json                   [OFFLINE]
+  graph triples [--doc kw|--all]    on-demand LLM SPO triples -> triples.jsonl
+                       [--dry-run|--force|--max-cost X]
+                                     long-job gate: CENHUA_LONGJOB_MAX_COST_CNY
+
+TOPIC DRAFTING (M4a; works/drafts, tier=derived-doc)
+  draft "主题" [--top N]            recall primary -> LLM draft -> citations
+                       [--dry-run|--force|--max-cost X]
+                                     long-job gate: CENHUA_LONGJOB_MAX_COST_CNY
+  draft "主题" --extend N           expand section N of latest version
+  draft "主题" --rewrite N          rewrite section N (citations re-verified)
+  draft --list ["主题"]             list drafts (version/date/rid)           [OFFLINE]
+  draft --diff "主题" <Va> <Vb>     unified diff between versions            [OFFLINE]
+  draft --restore "主题" <V>        re-save an old version as new version    [OFFLINE]
+  draft --verify ["主题|文件名"]     re-verify citations (same gate as query)  [OFFLINE]
 
 Examples
   cenhua init contracts --title "Client contracts"
@@ -107,7 +129,8 @@ Examples
 VALUE_OPTS = {"--title", "--gateway", "--home", "--vault", "-d", "--doc",
               "-p", "--page", "-g", "--grep", "--limit", "--workers", "--top",
               "--set", "--interval", "-n", "--max", "--since",
-              "--host", "--port"}
+              "--host", "--port", "--max-hops", "--max-nodes",
+              "--max-cost", "--doc"}
 
 
 def positional(rest):
@@ -332,6 +355,12 @@ def main():
     if cmd == "weave":
         import m_weave
         return m_weave.weave_cmd(v, rest)
+    if cmd == "graph":
+        import m_graph
+        return m_graph.graph_cmd(v, rest)
+    if cmd == "draft":
+        import m_draft
+        return m_draft.draft_cmd(v, rest)
 
     if cmd == "status":
         import m_vault

@@ -36,6 +36,12 @@ echo
 echo "== M3b webui (auth/rate-limit/SSE/docmeta/pages/rid, 45 tests)"
 python3 -W ignore::ResourceWarning tests/test_webui.py -q || rc=1
 echo
+echo "== M4a knowledge graph (parse/rebuild/entity-path-cluster/Mermaid/triples gates, 49 tests)"
+python3 -W ignore::ResourceWarning tests/test_graph.py -q || rc=1
+echo
+echo "== M4a topic draft (recall/gates/rid-idempotency/verify/extend-rewrite-diff-restore/backflow, 36 tests)"
+python3 -W ignore::ResourceWarning tests/test_draft.py -q || rc=1
+echo
 echo "== local OCR layer (RapidOCR stubbed, real renderers)"
 python3 tests/test_ocr.py 2>&1 | tail -3 || rc=1
 echo

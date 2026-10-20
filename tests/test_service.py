@@ -95,15 +95,20 @@ class ServiceTest(unittest.TestCase):
 
     def test_71_cli_is_thin(self):
         """白名单命令（M1a: cost/bench；M1b: refine/related；
-        M2b: query；M3a: digest）CLI 薄包装，函数体 <=10 行。"""
+        M2b: query；M3a: digest；M4a: graph/draft）CLI 薄包装，
+        函数体 <=10 行。"""
         import m_cost
         import m_digest
+        import m_draft
+        import m_graph
         import m_query
         import m_weave
         for mod, names in ((m_cost, ("cost_cmd", "bench_cmd")),
                            (m_weave, ("refine_cmd", "related_cmd")),
                            (m_query, ("query_cmd",)),
-                           (m_digest, ("digest_cmd",))):
+                           (m_digest, ("digest_cmd",)),
+                           (m_graph, ("graph_cmd",)),
+                           (m_draft, ("draft_cmd",))):
             for name in names:
                 fn = getattr(mod, name)
                 src_lines = _func_body(fn)

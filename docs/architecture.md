@@ -295,6 +295,45 @@ hint 二段验证成本进 ROI 账：query 台账记 `hint_docs`/`hint_dropped`�
 `scripts/m_webui.py` 仅 argparse + `serve_cmd`（CLI 入口白名单口径，
 test_71）。
 
+### 2.25 `cenhua_service/graph.py` + `scripts/m_graph.py` — 知识图谱（M4a）
+
+两条边来源、一套邻接表：① **离线共现边**——`summaries.extract_entities`
+规则实体 × 文档倒排（只认 `relations.primary_docs`），共现计数建边，枢纽度
+截断防"一个高频实体糊住全图"；② **LLM 三元组边**——`extract_triples` 走
+`refine.call_llm`（谓词白名单 PREDICATES，超白名单丢弃宁缺毋滥；JSON 解析
+失败/网关异常 → `_rule_triples` 规则兜底），落 `meta/triples.jsonl`，rebuild
+时以 `W_TRIPLE=0.5` 加权合入。存储 `meta/graph.json`（邻接表 JSON，
+tmp+os.replace 原子写，AGENTS §1）。
+
+查询全离线零 LLM：`entity`（邻域+出处）/ `path`（BFS 最短路径）/
+`clusters`（枢纽聚簇）/ `mermaid`（`graph LR` 文本，飞书 markdown 可渲）。
+`triples_flow` 是唯一的花钱入口，三闸顺序与 digest 完全一致
+（dry-run rc0 → `L.chat_ready` rc3 → `digest.budget_check` rc4 →
+`--force/--max-cost` 放行；未圈选文档 rc2，不默认全库跑）。
+CLI `graph_cmd` 薄包装（test_71 白名单 M4a）。
+
+### 2.26 `cenhua_service/draft.py` + `scripts/m_draft.py` — 主题草稿（M4a）
+
+roadmap §7.4 五步闭环：`recall`（`query.fuse(find, semantic)` 后
+`tier.evidence_eligible` 过滤——派生物永不作证据）→ `build_prompt`
+（HINT 非证据 + snippet 逐字 + 证据不足明示）→ `refine.call_llm` →
+`parse_draft`（失败/异常 → `rule_fallback` 原文摘录 + 明示需 LLM，calls=0）→
+`resolve_ids`（LLM 给 doc 前 8 位时唯一前缀补全，歧义不猜）→
+`query.verify_citations`（与 bench 门禁同一实现）→ `_atomic_write` 落
+`works/drafts/<主题>_V{N}_<日期>.md`（头尾 `<!-- draft:/derived_from:/mode: -->`
+注记 + tier=derived-doc 声明）。
+
+护栏与幂等：三闸复用 `digest.budget_check`；**rid 幂等**
+（`sha1(mode|topic|section|sorted(docs))`，台账 `meta/draft_rids.json` 保留
+200 条）——同 rid 且产物仍在直接 `mode=cached` 短路零花费；成本全量进
+`cost.ledger_append`（cmd=draft）。辅助动作 `--list/--verify/--diff/
+--restore` 全离线即时返回（`needs_channel=False` 不进任务通道）；
+`--verify` 从草稿文件反向解析引文行重过同一校验器（rc=1 即有失败，可进
+cron 巡检）；`--restore` 另存新版本不改历史。回流 `ingest_back` 直接委托
+digest 实现（只依赖 path/derived_from），由 `draft_flow` 落盘成功后自动执行
+（best-effort：失败只加 skipped 提示行，绝不改 rc）。CLI `draft_cmd` ≤10 行薄包装
+（test_71 白名单 M4a；参数解析全部下沉 `draft.parse_cli`）。
+
 ## 3. 关键数据流
 
 ### 3.1 摄取（含本地 OCR）

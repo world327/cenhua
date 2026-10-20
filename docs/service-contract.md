@@ -89,7 +89,7 @@ class CostEstimate:
 
 | 函数 | 签名 | 说明 |
 |---|---|---|
-| `verify_citation` | `verify_citation(doc, page, snippet) -> bool` | **三参签名**（F2）：校验 snippet 归一化后确实存在于该页文本层（NFKC 归一 + 去空白/全半角折叠后正则匹配） |
+| `verify_citation` | `verify_citation(vault, doc, page, snippet) -> bool` | 首参 vault（M4a 纠正措辞：实现一直是四参）；F2 起带 snippet 校验：归一化（NFKC + 去空白/全半角折叠）后确认 snippet 存在于该页文本层；空 snippet → False |
 | `estimate_tokens` | `estimate_tokens(text) -> int` | 字符数/1.6（中英混合近似） |
 | `estimate_cost` | `estimate_cost(model, tokens_in, tokens_out) -> CostEstimate` | token → 金额，按 pricing.json 各模型自身货币 |
 | `match_price` | `match_price(model) -> Price | None` | OpenClaw 全名匹配规则（F9）：全名 → 裸 id → 保守默认价 |
@@ -372,6 +372,60 @@ API 面：`GET /api/v1/docmeta?doc=`、`POST /api/v1/docmeta`（body
 
 **日志**：Web 层独立流 `logs/web-YYYYMM.log`（复用 `Vault.log`），行含
 rid/方法/路径/状态/耗时——结构化 + 全链路追踪，不外泄 token。
+
+---
+
+### 3.7 M4a 新增模块与函数（知识图谱 + 主题草稿，登记制先行）
+
+**放位与约束**：图谱与草稿是纯 CLI 能力（Web 面 M4b/M4c）；两模块零
+print/exit（test_70 全量生效）；LLM 调用一律走 `refine.call_llm`（单测
+统一 patch）；派生产物一律 tier=derived-doc 隔离且默认不召回。
+CLI 白名单 M4a 新增：`m_graph.graph_cmd` / `m_draft.draft_cmd`（≤10 行，
+参数解析全部下沉 service 的 `parse_cli`/`cli`）。
+
+`cenhua_service/graph.py`（知识图谱：LLM 三元组按需抽取 + 离线共现实体图）：
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `graph.graph_path` / `triple_path` | `(vault) -> str` | `meta/graph.json` / `meta/triples.jsonl`（均 tmp+os.replace 原子写） |
+| `graph.extract_triples` | `(vault, doc_id, read_text=None) -> list[dict]` | 单文档 LLM 三元组（`refine.call_llm`；JSON 解析失败/网关异常 → `_rule_triples` 规则兜底，谓词只认 `同时提及`）；入注只认 primary 文档 |
+| `graph.extract_all` | `(vault, doc_ids=None, limit=None, progress=None) -> dict` | 批量抽取（CLI `graph triples` 经任务通道执行；三闸同 digest：dry-run→chat_ready→`digest.budget_check`→`--force/--max-cost`） |
+| `graph.rebuild` | `(vault) -> dict` | 全量重建共现图：实体×文档倒排（`summaries.extract_entities` 规则实体）+ 共现边 + LLM 三元组加权边（`W_TRIPLE=0.5`）；枢纽度截断防爆炸半径；返回 `{nodes, edges}` 且可 JSON 序列化 |
+| `graph.load_graph` | `(vault, rebuild_if_missing=True) -> dict` | 读 `meta/graph.json`，缺失可触发 rebuild（离线，零 LLM） |
+| `graph.entity` | `(vault, kw, limit=10) -> dict{lines, rc}` | 实体邻域查询（含出处文档） |
+| `graph.path` | `(vault, kw_a, kw_b, max_hops=3) -> dict{lines, rc}` | 两实体最短路径（BFS）；未连通 rc=1 |
+| `graph.clusters` | `(vault, top=10) -> dict{lines, rc}` | 社区近似：按枢纽度数聚簇展示 |
+| `graph.mermaid` | `(vault, entity_kw=None, max_nodes=24) -> dict{lines, rc}` | Mermaid `graph LR` 文本（飞书 markdown 组件可渲染） |
+| `graph.triples_flow` | `(vault, rest) -> dict{lines, rc}` | `graph triples` 主编排；rc：0 成功/2 未圈选/3 网关未配置/4 预算闸拒绝 |
+| `graph.cli` | `(vault, rest) -> dict{lines, rc}` | graph 子命令总入口（entity/path/cluster/mermaid/rebuild/triples），错误 rc=2 |
+
+`cenhua_service/draft.py`（主题草稿：召回→LLM 生成→引文穿透→works/drafts 存档）：
+
+```python
+@dataclass
+class DraftResult:      # channel_job 适配：lines/cost
+    lines: list[str]; rc: int; cost: dict
+    topic: str; mode: str          # mode: llm | rules | cached
+    path: str; version: int; rid: str
+    sections: list[dict]; citations: list[dict]
+    derived_from: list[str]; schema_version: int = 1
+```
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `draft.recall` | `(vault, topic, top=3) -> list[doc_id]` | 主题召回：`query.fuse(find_hits, semantic_hits)` 后 **`tier.evidence_eligible` 过滤**（derived 永不入证据集） |
+| `draft.draft_flow` | `(vault, topic, mode="new", section=None, version=None, top=3, dry_run=False, force=False, max_cost=None, rid="", runtime=None) -> DraftResult` | 主编排（roadmap §7.4 五步）：召回→LLM sections JSON（`parse_draft`，失败→`rule_fallback` 原文摘录+明示需 LLM）→`resolve_ids` doc 前缀补全→`query.verify_citations`（门禁原语 = bench/verify 同一实现）→落盘 `works/drafts/<主题>_V{N}_<日期>.md`（tier=derived-doc 声明 + `<!-- draft: -->` / `<!-- derived_from: -->` 头尾注记）。rc：0 成功/1 召回空或失败/2 参数错/3 网关/4 预算闸；三闸顺序与 graph.triples/digest 完全一致；落盘成功后自动 `ingest_back` 回流（best-effort，失败仅追加 skipped 行，不改 rc） |
+| `draft.make_rid` / `rid_seen` / `rid_record` | `(mode, topic, section, doc_ids) -> str`；`(vault, rid) -> path`；`(vault, rid, path, topic) -> None` | 幂等台账 `meta/draft_rids.json`（保留 200 条，原子写）：同 rid 且产物仍在 → `mode="cached"` 短路零花费 |
+| `draft.verify_draft` | `(vault, target) -> dict{lines, rc}` | `draft --verify`：从草稿文件反向解析引文行（`> 引文 [doc前8位 P页] snippet · ✓/✗`）→ `resolve_ids` 前缀补全 → 重过 `query.verify_citations`（与生成同口径，保证"生成 ✓ 重验必 ✓"）；rc：0 全过/1 有失败/2 未匹配 |
+| `draft.list_drafts` / `list_lines` | `(vault, topic="") -> list[dict]` / `-> dict{lines, rc}` | 版本序列（`<slug>_V{N}_<日期>.md` 命名解析 + front 注记 rid/mode/topic） |
+| `draft.diff_draft` | `(vault, topic, a, b) -> dict{lines, rc}` | unified diff；rc：0 有差异/1 无差异或版本不存在 |
+| `draft.restore_draft` | `(vault, topic, version) -> dict{lines, rc}` | 旧版本**另存新版本**（不改历史文件），front 注记 restore 来源 |
+| `draft.parse_cli` | `(rest) -> dict` | CLI 参数下沉：`--extend/--rewrite 段号`、`--restore V`、`--list/--verify/--diff`、`--dry-run/--force/--max-cost/--top/--rid` |
+| `draft.gen_kwargs` / `needs_channel` | `(rest) -> dict` / `-> bool` | 生成走 `core.channel_job("draft", draft_flow, ...)`；辅助动作离线即时返回 |
+| `draft.ingest_back` | `(vault, result) -> doc_id` | 回流：委托 `digest.ingest_back`（只依赖 path/derived_from），tier=derived-doc |
+
+引文行渲染口径（生成/verify 共用，勿改）：`> 引文 [doc_id[:8] P页] snippet[:80]  · ✓|✗`；
+校验比对 key 为 `(doc_id, page, snippet[:80])`，与 `digest.cite_tail` 一致。
 
 ## 4. `schema_version` 演进记录
 
