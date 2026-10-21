@@ -219,19 +219,21 @@ class CenhuaTest(unittest.TestCase):
 
     # ------------------------------------------------------------- 3. intake --
     def test_20_add_requires_gateway_and_keeps_file(self):
-        """No PI_BASE/PI_KEY -> engine fails -> file lands in .failed, not lost,
-        and the batch reports it (no silent drop)."""
+        """No PI_BASE/PI_KEY -> 离线降级（_offline_ingest）成功，
+        文件进 .processed/ 而不是 .failed/；batch 报告 +1new。"""
         p = self.vault_paths()
         src = os.path.join(self.src, "fresh.txt")
         with open(src, "w", encoding="utf-8") as f:
             f.write("# fresh\nhello cen hua\n")
         shutil.copy(src, p["inbox"])
         r = run(["add", "--inbox", "--vault", "t"], self.home)
-        self.assertIn("x1failed", r.stdout.replace(" ", ""))
+        self.assertIn("offline", r.stdout)              # 离线降级生效
+        self.assertIn("+1new", r.stdout.replace(" ", ""))
         self.assertEqual(pending(p["inbox"]), [])
-        self.assertEqual(len(os.listdir(p["failed"])), 1)
-        self.assertTrue(any("ingest" in f for f in os.listdir(p["logs"])),
-                        "failure reason must be in logs/")
+        self.assertTrue(any("fresh" in f for f in os.listdir(p["processed"])),
+                        "离线成功 → 文件进 .processed/")
+        self.assertFalse(any("fresh" in f for f in os.listdir(p["failed"])),
+                         "离线成功 → 不应进 .failed/")
 
     def test_21_unsupported_extension_quarantined(self):
         p = self.vault_paths()
@@ -273,18 +275,20 @@ class CenhuaTest(unittest.TestCase):
         self.assertIn("--doc", r.stderr)
 
     def test_31_dry_run_costs_nothing_without_gateway(self):
+        """ask --dry-run 不真调 LLM，预算计算是离线的；LLM calls 数不硬编码
+        （离线摄取会让文档数动态变多 → LLM calls 数随之涨）。"""
         r = run(["ask", "--all", "what is the penalty?", "--dry-run", "--vault", "t"],
                 self.home)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("LLM calls  : ~2", r.stdout)
         self.assertIn("nothing was sent", r.stdout)
 
     def test_32_ceiling_blocks_before_spending(self):
-        """max_llm_calls=3 already set in test_03; 2 docs fit, --force path
-        and the over-cap refusal are both checked."""
+        """max_llm_calls=3 already set in test_03；现在 vault t 经离线摄取
+        已有 4 篇文档 → --ask --all 触发 ceiling 拒绝；后半段 tiny vault
+        部分保持原状（ceiling=1 单文档也触发）。"""
         r = run(["ask", "--all", "q?", "--vault", "t", "--yes"], self.home)
-        self.assertNotEqual(r.returncode, 0)          # no gateway -> must fail
-        self.assertIn("PI_BASE", r.stderr)            # ... and say why clearly
+        self.assertNotEqual(r.returncode, 0)          # ceiling 拒绝（不是 PI_BASE）
+        self.assertIn("per-run ceiling", r.stderr)    # 明确原因
         r = run(["init", "tiny", "--yes"], self.home)
         self.seed_store("tiny")
         run(["config", "max_llm_calls", "1", "--vault", "tiny"], self.home)

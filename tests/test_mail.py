@@ -157,13 +157,13 @@ class MailTest(unittest.TestCase):
         r = run(["add", "--inbox", "--vault", "mailv"], _TEST_HOME)
         out = r.stdout + r.stderr
         self.assertIn("mail -> 2 part(s)", out)     # 展开数量正确
-        self.assertIn("PI_BASE", out)               # 无网关 -> 部件摄取失败
-        self.assertEqual(r.returncode, 1)
-        failed = os.listdir(vault.failed)
-        # 邮件原件 + 2 个部件全部隔离进 .failed/，不静默丢弃
+        self.assertIn("offline", out)                # 无网关 → 离线降级
+        self.assertIn("+2new", out.replace(" ", ""))  # 2 部件都离线摄取成功
+        self.assertIn("x0failed", out.replace(" ", ""))
+        self.assertEqual(r.returncode, 0)
+        processed = os.listdir(vault.processed)
         self.assertTrue(any(f.startswith("c") and f.endswith(".eml")
-                            for f in failed), failed)
-        self.assertTrue(any("budget" in f for f in failed), failed)
+                            for f in processed), processed)
 
     # -------------------------------------------------- watch 强化 ----
     def test_05_pending_order_and_age_guard(self):

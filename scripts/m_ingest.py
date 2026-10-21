@@ -228,32 +228,37 @@ def ingest_one(vault, path, quiet=False):
 
     Only files that live INSIDE the inbox get moved to .processed/.failed
     staging; explicitly-added files stay where the user put them.
+
+    检查顺序（严格保证 dedupe / is_supported 走在 gateway 之前，因为它们
+    和网关无关；gateway 失败是最后才兜底离线降级）：
+      1. is_supported    —— 扩展名过滤，无网关也能判断
+      2. sha1            —— 和网关无关
+      3. dedupe_index    —— 和网关无关
+      4. 邮件展开        —— 部件后续递归 ingest_one，独立判断网关
+      5. gateway         —— 最后才查；无网关走 _offline_ingest 离线降级
+      6. 引擎 pi_ingest  —— 有网关才走
     """
     path = os.path.abspath(path)
     name = os.path.basename(path)
     in_inbox = os.path.dirname(path) == os.path.abspath(vault.inbox)
 
-    # 无网关 → 离线降级（find 可用，LLM 功能继续 fail-closed）
-    if not L.chat_ready():
-        if os.path.exists(path) and L.is_supported(path):
-            if not quiet:
-                L.say(f"~ no gateway — offline mode: {name}")
-            return _offline_ingest(vault, path, quiet=quiet)
-        return "failed"
-
     def stage(src, dstdir, suffix=""):
         return L.move_into(src, dstdir, suffix) if in_inbox else src
 
+    # 1) unsupported extension —— 和网关无关，先判
     if not L.is_supported(path):
         L.err(f"! skipped (unsupported extension): {name}")
         stage(path, vault.failed, suffix="_unsupported")
         return "failed"
+
+    # 2) sha1 —— 和网关无关
     try:
         digest = L.sha1(path)
     except OSError as e:
         L.err(f"! unreadable: {name} ({e})")
         return "failed"
 
+    # 3) dedupe —— 和网关无关
     d = dedupe_index(vault)
     if digest in d:
         if not quiet:
@@ -261,9 +266,9 @@ def ingest_one(vault, path, quiet=False):
         stage(path, vault.processed)
         return "dupe"
 
-    # 邮件（M1b §4.4）：展开成正文 Markdown + 附件部件，逐个走同一闭环。
-    # 单部件失败进 .failed/ 不拖垮整封；台账经 restore_provenance 指回
-    # 邮件原件（sources/ 归档 .eml/.msg 本体）。
+    # 4) 邮件展开（M1b §4.4）：部件递归 ingest_one，各自独立判断网关；
+    #    必须放 gateway 检查之前——否则无网关时邮件本体 .eml 永远没
+    #    机会展开（_offline_ingest 不认识 .eml，会直接 failed）。
     import m_mail
     if m_mail.is_mail(path):
         try:
@@ -305,6 +310,13 @@ def ingest_one(vault, path, quiet=False):
         return ("added" if counts["added"]
                 else "dupe" if counts["dupe"] else "failed")
 
+    # 5) 最后才查 gateway —— 只有 LLM 树索引才需要它
+    if not L.chat_ready():
+        if not quiet:
+            L.say(f"~ no gateway — offline mode: {name}")
+        return _offline_ingest(vault, path, quiet=quiet)
+
+    # 6) 有网关 → 引擎 pi_ingest.py 树索引路径
     t0 = time.time()
     if not quiet:
         L.say(f"> ingesting {name} ... (tree index: minutes for long PDFs; "

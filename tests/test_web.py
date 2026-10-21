@@ -253,17 +253,18 @@ class WebTest(unittest.TestCase):
     # ------------------------------------------------- add --url 端到端 ----
     def test_10_add_url_static(self):
         # 无 PI_BASE/PI_KEY（引擎需 LLM 网关）-> 抓取成功、产物落 inbox、
-        # 摄取失败被隔离进 .failed/（任务 13 验收点），不静默丢弃。
+        # URL 快照是 .html，走 ingest_one 离线降级 → 摄取成功，进 .processed/。
         r = run(["add", "--url", f"{self.base}/page", "--no-render",
                  "--vault", "t"], self.home)
         out = r.stdout + r.stderr
-        self.assertEqual(r.returncode, 1, out)      # 有失败 -> rc=1
-        self.assertIn("ingest failed", out)
+        self.assertEqual(r.returncode, 0, out)      # 离线降级成功
+        self.assertIn("ingested", out)               # URL 摄取报告
+        self.assertIn("+1", out.replace(" ", ""))    # 一个新文档
         vault = os.path.join(self.home, "vaults", "t")
-        failed_dir = os.path.join(vault, "inbox", ".failed")
-        failed = os.listdir(failed_dir) if os.path.isdir(failed_dir) else []
-        self.assertTrue(any(f.startswith("url-page") for f in failed),
-                        f"artifact not staged to .failed/: {failed}")
+        processed_dir = os.path.join(vault, "inbox", ".processed")
+        processed = os.listdir(processed_dir) if os.path.isdir(processed_dir) else []
+        self.assertTrue(any(f.startswith("url-page") for f in processed),
+                        f"artifact not staged to .processed/: {processed}")
         # HTML 快照归档在 works/snapshots/（溯源用，不进索引）
         snap = os.path.join(vault, "works", "snapshots", "url-page.html")
         self.assertTrue(os.path.isfile(snap))
@@ -282,7 +283,7 @@ class WebTest(unittest.TestCase):
         out = r.stdout + r.stderr
         self.assertIn("proceeding because of --force", out)
         self.assertNotIn("fetch failed", out)  # robots 不再拦，抓取成功
-        self.assertIn("ingest failed", out)    # 无网关摄取失败（失败隔离）
+        self.assertIn("+1", out.replace(" ", ""))  # 离线降级成功摄取
 
     def test_12_add_url_file(self):
         urlfile = os.path.join(self.home, "urls.txt")
@@ -291,10 +292,11 @@ class WebTest(unittest.TestCase):
         r = run(["add", "--url-file", urlfile, "--no-render", "--vault", "t"],
                 self.home)
         out = r.stdout + r.stderr
-        # url-file 解析正确（about 被处理），且失败隔离
+        # url-file 解析正确（about 被处理）；about 页面在 test_10 已摄取过 →
+        # dedupe 跳过 → =1 dupes, x0 failed
         self.assertIn("http://127.0.0.1", out)
-        self.assertIn("ingest failed", out)
-        self.assertIn("1 failed", out)
+        self.assertIn("already in vault", out)
+        self.assertIn("x0failed", out.replace(" ", ""))
 
     def test_13_add_url_dedup(self):
         # 同一 URL 规范化后去重
@@ -375,16 +377,14 @@ class WebTest(unittest.TestCase):
 
     # ------------------------------------------------- CLI 边界 ----
     def test_21_add_url_eq_and_size_limit(self):
-        # --url= 形式 + 5.3MB 页面 -> 截断提示 + 失败隔离。
-        # 上限调小到 16KB：截断行为与 5MB 一致，但避免离线测试环境
-        # 真的去转换 5MB HTML（引擎 insert_htmlbox 分钟级）。
+        # --url= 形式 + 截断提示 + 离线降级摄取成功（无网关不再失败隔离）。
         r = run(["add", f"--url={self.base}/big", "--no-render",
                  "--vault", "t"], self.home,
                 env={"CENHUA_MAX_PAGE_BYTES": "16384"})
         out = r.stdout + r.stderr
         self.assertIn("truncated", out)
-        self.assertIn("ingest failed", out)
-        self.assertEqual(r.returncode, 1)
+        self.assertIn("+1", out.replace(" ", ""))   # 离线降级摄取成功
+        self.assertEqual(r.returncode, 0)
 
     def test_23_content_guard_rejects_empty_page(self):
         # JS 空壳页：静态无正文 -> 必须失败，绝不能"成功"后在 PDF 转换崩

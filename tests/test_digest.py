@@ -469,12 +469,20 @@ class BackflowTest(unittest.TestCase):
     def test_23_ingest_back_tier_and_chain(self):
         from unittest import mock
         from cenhua_service import refine as R
-        with mock.patch.object(R, "call_llm", return_value=(self.GOOD, 9, 9)):
-            res, _ = G.compose(self.vault, ["pi-b1"], label="weekly")
-        self.assertEqual(res.rc, 0)
-        with mock.patch.object(L, "run_engine",
-                               self._fake_added(os.path.basename(res.path))):
-            doc_id = G.ingest_back(self.vault, res)
+        # ingest_one 现在 gateway 检查在 dedupe/is_supported 之后；
+        # 要测引擎路径（mock run_engine）必须让 chat_ready 通过。
+        os.environ["PI_BASE"] = "http://127.0.0.1:9/v1"
+        os.environ["PI_KEY"] = "k"
+        try:
+            with mock.patch.object(R, "call_llm", return_value=(self.GOOD, 9, 9)):
+                res, _ = G.compose(self.vault, ["pi-b1"], label="weekly")
+            self.assertEqual(res.rc, 0)
+            with mock.patch.object(L, "run_engine",
+                                   self._fake_added(os.path.basename(res.path))):
+                doc_id = G.ingest_back(self.vault, res)
+        finally:
+            os.environ.pop("PI_BASE", None)
+            os.environ.pop("PI_KEY", None)
         self.assertEqual(doc_id, "pi-digest1")
         led = L.read_json(os.path.join(self.vault.store,
                                        "ingest_manifest.json"), {})
