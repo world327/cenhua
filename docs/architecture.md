@@ -334,6 +334,68 @@ digest 实现（只依赖 path/derived_from），由 `draft_flow` 落盘成功�
 （best-effort：失败只加 skipped 提示行，绝不改 rc）。CLI `draft_cmd` ≤10 行薄包装
 （test_71 白名单 M4a；参数解析全部下沉 `draft.parse_cli`）。
 
+### 2.27 `cenhua_service/templates.py` + `scripts/m_template.py` — 模板生成（M4c）
+
+roadmap §7.5 模板系统：内置四模板 `BUILTIN`（report/memo/email/weekly，差异只落在
+`sections` 小节骨架与 `style` 文风指令两处）+ `<vault>/meta/templates/<id>.md`
+自定义（`load` 同名**覆盖**内置，首行 `<!-- template: id= name= -->` 为元信息，
+`##` 标题即骨架）。**零复制生成逻辑**（dev-plan §8.6 复用优先）：召回
+`draft.recall`、证据/hint `query.evidence_for` + `prompt.hint_block`、LLM 唯一出口
+`refine.call_llm`、解析/兜底 `draft.parse_draft`/`rule_fallback`、引文
+`query.verify_citations`、版本/落盘/rid `draft.next_version/_atomic_write/rid_*`；
+`build_prompt` 复用 `draft._SCHEMA`（引文纪律单一事实源）。
+
+`template_flow` 与 `draft_flow` 同一套闸门与 rc 口径（0/1/2/3/4）：rid 幂等短路
+（`mode=cached`）→ dry-run rc0 → `L.chat_ready` rc3 → `digest.budget_check` rc4
+→ 生成；LLM 异常或 JSON 不可解析一律转 `rule_fallback`（骨架说明 + 原文摘录，
+calls=0）。产物落 `works/drafts/`（同 draft 目录，Web 编辑/导出天然可用），
+在 `<!-- draft: -->` 注记后插一行 `<!-- template: <id> -->`，台账 `cmd=template`，
+落盘成功后 `draft.ingest_back` best-effort 回流。`list/show/add` 零 LLM 离线即时
+（`needs_channel` 只在"有主题"时为真，与 `flow` 的路由口径必须一致），
+生成走 `core.channel_job`；CLI `template_cmd` ≤10 行薄包装（test_71 M4c）。
+
+### 2.28 `cenhua_service/exporter.py` + `scripts/m_export.py` — 导出（M4c）
+
+`export(vault, file, fmt)`：md 逐字节 `copyfile`；html/pdf 共用
+`md_to_html_body` → `webui.pages._md_to_html`（markdown tables+fenced_code，
+剥 `<script>` 与 `on*` 属性——**消毒口径与 Web 页面单一事实源**），html 包一层
+`_HTML_DOC` 骨架（fsync 落盘），pdf 调引擎 `pi_ingest.html_to_pdf`（pymupdf、
+内置 CJK 字体、宽表横排、字符数 >=85% 完整性校验；import 方式同 `m_ocr.py` 先例，
+引擎字节不改）。
+
+源文件限 `works/drafts/` 内 `.md`（复用 `draft._draft_path` 防路径穿越）；任何
+渲染/校验异常一律删除半成品再返回 rc=1（宁可不产出，不产出空壳 PDF），
+源非法/格式非法 rc=2。纯离线零 LLM、零台账；CLI `export_cmd` 直接打印
+`{rc,lines}`（test_71 M4c）。验收口径是 **pymupdf 读回 `get_text()` 探针比对**，
+不是"文件存在"（见 pitfalls §16）。
+
+### 2.29 `cenhua_service/session.py` — 多轮上下文（M4c）
+
+roadmap §6.6 多轮对话：`record` 把每轮 `{q, a[:300], cites[:3]}` 追加到
+`<vault>/meta/sessions/<sid>.json`（`TURNS_MAX=6` 超限裁最旧；
+tmp+`os.replace`+fsync 原子写）；`history_block` 把先前轮次渲染成
+`[PRIOR tier=context]` 段，由 `prompt.build_prompt(prior_lines=...)` 放在 HINT
+**之前**——与 hint-not-evidence 同族纪律：先前轮次含 LLM 生成文本，prompt 明示
+"不是证据、不得进 citations"，`_INSTRUCTION` 第 2 条固化该口径。
+
+`_SID_RE` 白名单（字母/数字/`_`/`-`，≤64）是唯一的防路径穿越关口（`--session ../x`
+直接不存档并打提示行）；读侧容忍文件损坏/结构不合（返回 None 即当无会话）。
+接线在 `query_flow`：`session` 非空才注入与存档，任何读写异常静默降级为单轮，
+**永不改 rc**；`--dry-run` 只报"已注入 N 轮"不落盘。
+
+### 2.30 `cenhua_service/rerank.py` — 检索重排（M4c）
+
+roadmap §6.6 重排器：粗召回 `fuse` 之后、Top-K 截断之前，取 `top * POOL_MULT(=3)`
+候选（每候选只喂 `text_pages` 首页前 `PREVIEW_CHARS=220` 字）用一次小模型调用输出
+`{"order": [...]}` 相关性排列。`parse_order` 容错：非法/越界/重复编号丢弃、
+缺失编号按原序补尾，完全不可解析返回 None。
+
+纯函数 + 零副作用（估价与执法都在 `query_flow` 里统一走三闸）：`enabled` 开关
+优先级 `CENHUA_RERANK` env > vault.yaml `rerank` > 默认开；`apply` 捕获一切异常
+并返回 `(原 fused, 降级说明, None)`——重排失败只让命中行多一个"重排：…"note，
+rc 与结果序均与原序一致。网关成本独立记账（`cmd=query_rerank` 行），主 `query`
+行的 tokens 合并计入，保证 `cenhua cost` 见账等于实烧；`--no-rerank` 单命令关闭。
+
 ## 3. 关键数据流
 
 ### 3.1 摄取（含本地 OCR）
@@ -444,6 +506,7 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 | `CENHUA_WEB_HOST` / `CENHUA_WEB_PORT` | env / vault.yaml `web_host` / `web_port` | `127.0.0.1` / `8765` | Web 监听地址/端口（M3b） |
 | `CENHUA_WEB_RATE_CALLS` / `CENHUA_WEB_RATE_WINDOW_S` | env / vault.yaml `web_rate_calls` / `web_rate_window_s` | `30` / `60` | 滑动窗口限流（M3b） |
 | `CENHUA_WEB_HEARTBEAT_S` / `CENHUA_WEB_KEEPALIVE_S` | env / vault.yaml `web_heartbeat_s` / `web_keepalive_s` | `10` / `120` | SSE 心跳间隔 / uvicorn keep-alive 秒（M3b） |
+| `CENHUA_RERANK` | env / vault.yaml `rerank` | 开（`0/off/false/no` 关闭） | query 粗召回后小模型重排开关；`--no-rerank` 单命令关闭（M4c） |
 
 ## 6. 扩展点
 

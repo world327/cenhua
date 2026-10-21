@@ -394,3 +394,59 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
   `draft_flow` 落盘后调用，手动 `cenhua add` 草稿文件会以 `tier=primary`
   入库（污染证据集）。照抄 digest 模式：rc=0 且产物存在才回流，
   best-effort 只加提示行不改 rc。
+
+## 16. 模板、导出、多轮与重排（M4c）
+
+- **CLI 双形态返回：`DraftResult` dataclass 与 `{rc,lines}` dict 混用，
+  `flow` 路由与 `needs_channel` 口径必须逐条一致**：`template_flow` 返回
+  dataclass（`channel_job` 要 `.lines/.cost`），`aux_flow`（list/show/add）返回
+  dict（CLI `_aux` 用 `res["rc"]` 下标取）。照抄 draft 的
+  `needs_channel = not parse_cli(rest)["action"]` 会让**裸 `cenhua template memo`
+  （show 骨架，零 LLM）被判成任务通道**，dict 塞进 `channel_job` 当场
+  `TypeError: string indices must be integers`（或反向：dataclass 被下标取）。
+  正解是两处用**同一个 `parse_cli` 结果**判定：
+  `needs_channel = not action and bool(topic)` 且 `flow` 内同一条件分支。
+  凡是"一个命令两种返回"的子命令，验收必须覆盖 `template <id>` 裸 show
+  （test_template.test_04/41）。
+- **PDF 导出验收必须读回比对，不能只看文件存在**：引擎 `html_to_pdf` 的历史
+  事故就是"宽表静默空白"——文件生成成功、`os.path.isfile` 为真、字节数还不小，
+  但页面是空壳。导出单测与手工验收一律
+  `pymupdf.open(path)` → `"".join(p.get_text() for p in doc)` → 断言中文标题、
+  关键数字等探针存在（引擎内置 >=85% 字符完整性校验只是兜底，不是验收）。
+  同理 `export` 失败路径必须**先删半成品再返 rc=1**，否则 `.failed` 语义变成
+  "exports 目录里躺着一份打不开的 PDF"（dev-plan §8.3 #13 读回验收口径）。
+- **重排/多轮这类 LLM 增强必须"默认降级不影响主链路"**：重排失败（网关炸、
+  输出不可解析、预算拒绝）一律返回原序，多轮读写异常一律退化为单轮——
+  两者只往输出里加一行 note（`重排：…` / `[session] … 未存档`），**绝不改 rc**。
+  一旦让增强失败翻 rc（或让 `--session` 的非法 sid 报错退出），用户会把
+  "增强没生效"理解成"检索失败"，也会让既有脚本的 rc 断言集体回归；
+  反过来，若增强失败静默无痕（无 note），排障时无从判断重排到底跑没跑。
+  配套纪律：重排的花钱行独立记 `cmd=query_rerank` 台账（并进主行 tokens），
+  否则"见账 < 实烧"（§6 全量记账）。
+
+## 17. 真实网关端到端测试（M4 E2E 复盘，v0.6.2）
+
+- **思考模型把 reasoning 和 content 算在同一个 `max_tokens` 里**：vLLM 部署的
+  ms-qwen36-35b 思考链动辄 4000+ 字符，预算打满时 `finish_reason=length` 且
+  `content=None`——台账上 `tokens_out` 恰好等于调用方传的 `max_tokens` 就是
+  这个坑的指纹（rerank 传 200 必全灭：reasoning 连 1200 都吃满还吐不出 content）。
+  三层对策（`refine.call_llm` 单点收口，下游 query/draft/template/graph 全受益）：
+  ① env `PI_DISABLE_THINKING=1` → 透传
+  `extra_body={"chat_template_kwargs":{"enable_thinking":False}}`（实测有效，
+  裸 `enable_thinking` 参数和 `thinking={"type":"disabled"}` 都**无效**，别猜）；
+  ② 未关思考时 `finish=length` 且 content 空 → 预算加倍自动重试一次（两次
+  token 全量记账）；③ 仍空返回 `msg.reasoning` 尾段兜底——下游 parse 失败
+  自然走规则降级，链路不断。
+- **渲染层查表 key 必须与两侧数据同口径**：`draft.assemble` 的 `ok_map` 用
+  `resolve_ids` 补全后的**完整 doc_id** 作 key，小节引文里却还是 LLM 原样的
+  8 位前缀 → 永不命中、4 条引文全标 `· ✗`，而"参考文档"段直接数 cites 报
+  "4/4 校验通过"——**同一篇文章两种口径互相打脸**。E2E 读回产物才发现
+  （单测 mock 的 doc id 恰好两边一致，测不出来）。正解：key 统一用 `doc[:8]`
+  渲染口径（与引文行展示一致，前缀/全 id 两边都命中），并补 AssembleTest
+  双 id 形态回归。教训：**产物读回验收必须肉眼看内容**（§14 口径的延伸），
+  `draft --verify` 全 ✓ 不代表文章里画的是 ✓。
+- **模板骨架的编号会被 LLM 原样带回**：prompt 里写"标题依序为：1.《本周进展》"，
+  LLM 回的 title 就是 `1.《本周进展》`，`assemble` 再加 `"%d. %s"` 前缀 →
+  `## 1. 1.《本周进展》`。渲染端按 `^\d+[.、)]` 检测已带编号则不再叠加
+  （prompt 侧不强制改，兼容用户自定义模板里本来就带编号的小节名）。
+

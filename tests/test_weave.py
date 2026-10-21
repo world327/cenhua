@@ -524,5 +524,78 @@ class GraphIsolationTest(unittest.TestCase):
             json.dump(led, f)
 
 
+class CallLlmThinkingTest(unittest.TestCase):
+    """call_llm 对思考模型的三层对策（E2E 实测 ms-qwen36-35b 坑）。"""
+
+    def setUp(self):
+        for k in ("PI_BASE", "PI_KEY", "PI_MODEL", "PI_DISABLE_THINKING"):
+            os.environ.pop(k, None)
+        os.environ["PI_BASE"] = "http://127.0.0.1:9/v1"
+        os.environ["PI_KEY"] = "k"
+
+    @staticmethod
+    def _resp(content, finish="", reasoning=None, tin=10, tout=20):
+        import types
+
+        def _d(**kw):
+            return types.SimpleNamespace(**kw)
+        msg = _d(content=content, reasoning=reasoning)
+        return _d(choices=[_d(message=msg, finish_reason=finish)],
+                  usage=_d(prompt_tokens=tin, completion_tokens=tout))
+
+    def _client(self, resp_seq):
+        import types
+        calls = []
+
+        def create(**kw):
+            calls.append(kw)
+            return resp_seq[len(calls) - 1]
+        return types.SimpleNamespace(
+            chat=types.SimpleNamespace(
+                completions=types.SimpleNamespace(create=create))), calls
+
+    def test_90_double_budget_retry_on_length(self):
+        import unittest.mock as mock
+        from cenhua_service import refine as R
+        client, calls = self._client([
+            self._resp(None, finish="length"),                 # 思考打满预算
+            self._resp('{"summary": "ok"}', finish="stop")])
+        with mock.patch("openai.OpenAI", return_value=client):
+            text, tin, tout = R.call_llm("p", max_tokens=100)
+        self.assertEqual(text, '{"summary": "ok"}')
+        self.assertEqual([c["max_tokens"] for c in calls], [100, 200])
+        self.assertEqual((tin, tout), (20, 40))                # 两次全量记账
+
+    def test_91_reasoning_tail_fallback(self):
+        import unittest.mock as mock
+        from cenhua_service import refine as R
+        client, calls = self._client([
+            self._resp(None, finish="stop", reasoning="思考过程尾段")])
+        with mock.patch("openai.OpenAI", return_value=client):
+            text, tin, tout = R.call_llm("p", max_tokens=100)
+        self.assertEqual(text, "思考过程尾段")                  # 下游 parse 失败走降级
+        self.assertEqual(len(calls), 1)                        # finish!=length 不重试
+
+    def test_92_disable_thinking_extra_body(self):
+        import unittest.mock as mock
+        from cenhua_service import refine as R
+        os.environ["PI_DISABLE_THINKING"] = "1"
+        client, calls = self._client([self._resp("clean", finish="stop")])
+        with mock.patch("openai.OpenAI", return_value=client):
+            text, _, _ = R.call_llm("p", max_tokens=100)
+        self.assertEqual(text, "clean")
+        self.assertEqual(calls[0]["extra_body"],
+                         {"chat_template_kwargs":
+                          {"enable_thinking": False}})
+
+    def test_93_no_extra_body_by_default(self):
+        import unittest.mock as mock
+        from cenhua_service import refine as R
+        client, calls = self._client([self._resp("clean", finish="stop")])
+        with mock.patch("openai.OpenAI", return_value=client):
+            R.call_llm("p", max_tokens=100)
+        self.assertNotIn("extra_body", calls[0])               # 默认零侵入
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -149,22 +149,46 @@ def budget_check(estimate_result, force=False):
 # ------------------------------------------------------------ LLM 精化 ----
 def call_llm(prompt, max_tokens=900, temperature=0.2):
     """OpenAI 兼容网关单轮调用。返回 (text, tokens_in, tokens_out)。
-    失败抛异常（调用方做失败隔离）。refine/query 共用（M2b）。"""
+    失败抛异常（调用方做失败隔离）。refine/query 共用（M2b）。
+
+    思考模型（reasoning 与 content 共用 max_tokens 预算）已知坑
+    （AGENTS.md §5）：reasoning 打满预算 → content=None / finish=length。
+    对策：① env PI_DISABLE_THINKING=1 → 透传 vLLM chat_template_kwargs
+             关闭思考（实测 ms-qwen36-35b 立省 20 倍 token 且 JSON 干净）；
+          ② 未关思考时预算耗尽自动加倍重试一次（token 全量记账）；
+          ③ 仍空则用 reasoning 尾段兜底（下游 parse 失败自然走规则降级）。
+    """
     import os as _os
     from openai import OpenAI
     base = _os.environ.get("PI_BASE")
     key = _os.environ.get("PI_KEY")
     model = _os.environ.get("PI_MODEL", "openai/gpt-4o-mini")
     client = OpenAI(base_url=base, api_key=key, timeout=120)
-    resp = client.chat.completions.create(
-        model=model.replace("openai/", "") if base else model,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=max_tokens, temperature=temperature)
-    text = (resp.choices[0].message.content or "").strip()
-    usage = getattr(resp, "usage", None)
-    return (text,
-            getattr(usage, "prompt_tokens", 0) or 0,
-            getattr(usage, "completion_tokens", 0) or 0)
+    name = model.replace("openai/", "") if base else model
+    kwargs = {}
+    if _os.environ.get("PI_DISABLE_THINKING", "").strip().lower() in (
+            "1", "true", "yes", "on"):
+        kwargs["extra_body"] = {"chat_template_kwargs":
+                                {"enable_thinking": False}}
+    tin = tout = 0
+    for attempt in (0, 1):                  # 最多一次加倍重试
+        resp = client.chat.completions.create(
+            model=name,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens, temperature=temperature, **kwargs)
+        usage = getattr(resp, "usage", None)
+        tin += getattr(usage, "prompt_tokens", 0) or 0
+        tout += getattr(usage, "completion_tokens", 0) or 0
+        msg = resp.choices[0].message
+        text = (msg.content or "").strip()
+        if text:
+            return text, tin, tout
+        finish = getattr(resp.choices[0], "finish_reason", "")
+        if finish == "length" and attempt == 0:
+            max_tokens *= 2                 # reasoning 挤爆预算：加倍重试
+            continue
+        # reasoning 尾段兜底（无此字段则维持空串）
+        return ((getattr(msg, "reasoning", "") or "").strip()), tin, tout
 
 
 # 兼容别名（M1b 内部调用仍走 _call_llm）

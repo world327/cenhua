@@ -68,7 +68,9 @@ INTAKE    add <files|dir|--inbox> · add --url <url> [--url ...] ·
           （.eml/.msg 邮件自动展开附件，v0.3.2 起）
 RETRIEVE  find <terms> [-d doc] [-i] [-r] · read <doc> [-p N] [-g re] · list
 QUERY     query "问题" [--include-derived] [--dry-run] [--force] [--top N]
-          四段输出：直接命中 + 总结延展 + 内容出处 + 关联推荐（v0.3.3 起）
+          [--session SID] [--no-rerank]
+          四段输出：直接命中 + 总结延展 + 内容出处 + 关联推荐（v0.3.3 起）；
+          多轮上下文继承 + 小模型重排（v0.6.2 起，重排默认开）
 DEEP READ ask [--doc kw | --all] "q" [--limit N] [--dry-run]   (成本护栏)
 INSIGHT   digest --weekly | --monthly | --quarterly | --since YYYY-MM-DD
           [--dry-run] [--force] [--max-cost N]
@@ -78,6 +80,12 @@ GRAPH     graph entity <实体> · path <A> <B> · cluster · mermaid ·
 DRAFT     draft "主题" [--top N] · --extend/--rewrite <段号> ·
           --list · --diff "主题" Va Vb · --verify · --restore <版本>
           产物 works/drafts/<主题>_V{N}_<日期>.md，tier=derived-doc（v0.6.0 起）
+TEMPLATE  template --list · template <id> · template --add <id> [--name N]
+          (--section S ... | --sections A,B) [--force]（离线）
+          template <id> "主题" [--top N] [--dry-run] [--force] [--max-cost X]
+          内置报告/备忘录/邮件/周报 + meta/templates/ 自定义（v0.6.2 起）
+EXPORT    export <works/drafts 内文件名.md> [--md|--html|--pdf]
+          产物 works/exports/<同名>.<fmt>，纯离线（v0.6.2 起）
 SEMANTIC  index build|status · seek "question"     (可选向量层)
 WEAVING   related <doc> · link <A> <B> · link --ban <E1> <E2> · hub ·
           weave rebuild · refine [--all --dry-run | --drain [--force]]
@@ -265,6 +273,25 @@ cenhua query "ABC 合同的违约金条款"
 # 4. 关联推荐：基于关联层（四层降噪）推荐相关文档
 ```
 
+多轮与重排（v0.6.2 · M4c 起）：
+
+```bash
+cenhua query "ABC 合同的违约金条款" --session deal42   # 第 1 轮，轮次存档
+cenhua query "那赔偿上限呢" --session deal42           # 第 2 轮，自动带上先前轮次
+cenhua query "违约金条款" --no-rerank                  # 关掉小模型重排（默认开）
+CENHUA_RERANK=0 cenhua query "违约金条款"              # 会话级/进程级关闭
+cenhua config rerank false                             # 库配置里长期关闭
+```
+
+- 同一 `--session <sid>` 的问答轮次落 `meta/sessions/<sid>.json`（至多 6 轮，
+  超限裁最旧）；先前轮次以 `[PRIOR tier=context]` 段进 prompt，**只用于理解
+  指代与延续话题，不是证据**，事实仍须出自本轮 `[EVIDENCE tier=primary]`。
+- 重排在粗召回融合后、Top-K 截断前用一次小模型调用重排候选池（候选 > `--top`
+  且网关可用才执行），开关优先级 `CENHUA_RERANK` > vault.yaml `rerank` > 默认开；
+  重排的花钱行独立记台账（`cenhua cost` 可见 `cmd=query_rerank`）。
+- 两者都是**可降级增强**：非法 sid（限字母/数字/`_`/`-`，≤64 字符）不存档、
+  重排调用失败或输出不可解析一律原序返回，rc 与不带这两个选项时完全一致。
+
 规则与习惯：
 
 - **引文强制带 snippet**：snippet 必须逐字来自该页文本层，本地校验不过的结论
@@ -404,6 +431,57 @@ cenhua draft "合同违约条款演变" --restore 1 # 旧版本另存为最新�
   零花费；三闸与 digest 完全一致（`--dry-run` → 预算闸 rc=4 → `--force`/`--max-cost`）。
 - 无网关或 LLM 输出解析失败 → 规则兜底（原文摘录小节 + 明示"需 LLM"），
   绝不硬编（calls=0）。
+
+### 4.4e 模板生成 `template` 与导出 `export`（v0.6.2 · M4c 起）
+
+**模板生成**（在 draft 闭环之上只换"小节骨架 + 文风"，产物同目录、同一引文门禁）：
+
+```bash
+cenhua template --list                        # 内置 4 个 + 自定义（离线即时）
+cenhua template memo                          # 查看某个模板的骨架与文风（离线）
+cenhua template --add board_brief --name 董事会简报 \
+        --section 摘要 --section 风险 --section 决议    # 自定义模板（离线）
+cenhua template --add board_brief --sections 摘要,风险,决议 --force  # 等价写法+覆盖
+cenhua template report "合同违约条款演变" --dry-run   # 先看账：召回文档 + calls + 金额
+cenhua template weekly "本季度供应链融资进展"          # 正式生成（长任务通道，实时进度）
+cenhua template memo "预算追加申请" --max-cost 1.5     # 单次放宽预算上限
+```
+
+- **内置四模板**：`report` 报告 / `memo` 备忘录 / `email` 邮件 / `weekly` 周报，
+  各 4 个小节骨架 + 一段文风指令；`template --list` 可看全量。
+- **自定义模板**落 `<vault>/meta/templates/<id>.md`（id 限小写字母/数字/下划线，
+  2–32 位），**同名覆盖内置**（例如自定义 `memo.md` 会顶掉内置备忘录骨架）；
+  文件就是普通 markdown，`##` 标题即小节骨架，首行
+  `<!-- template: id=xxx name=显示名 -->` 是可选元信息，可直接手工编辑。
+- **产物与 draft 同一目录**：`works/drafts/<主题>_V{N}_<日期>.md`
+  （tier=derived-doc，检索默认不召回），因此 Web 编辑三件套与 `export`
+  天然可用；文件内多一行 `<!-- template: <id> -->` 溯源标记，自动回流入库
+  （`derived_from` 链，回流失败只加提示行不改 rc）。
+- **rc 语义与 draft 对齐**：`0` 成功 / `1` 召回为空或生成、落盘失败 /
+  `2` 参数错（未知模板、缺主题、`--add` 时 id 非法或已存在未加 `--force`）/
+  `3` 网关未配置（`--dry-run` 仍可看账）/ `4` 预算拒绝
+  （`CENHUA_LONGJOB_MAX_COST_CNY`，默认 ¥5，`--force`/`--max-cost` 放行）。
+- **rid 幂等**：同模板+同主题+同证据集重复提交直接复用既有产物（`mode=cached`），
+  零花费；台账记 `cmd=template`（`cenhua cost` 可见）。
+- 无网关或 LLM 输出解析失败 → 规则兜底（模板骨架说明 + 原文摘录小节，
+  calls=0），绝不硬编。
+
+**导出**（纯离线零 LLM，源限 `works/drafts/` 内的 `.md`）：
+
+```bash
+cenhua draft --list                            # 先找文件名
+cenhua export 合同违约条款演变_V1_2026-10-20.md            # 默认 md
+cenhua export 合同违约条款演变_V1_2026-10-20.md --html
+cenhua export 合同违约条款演变_V1_2026-10-20.md --pdf
+```
+
+- 产物落 `works/exports/<同名>.<fmt>`。`md` 逐字节复制；`html` 与 `pdf` 都走
+  **同一套 markdown → 受限 HTML 渲染**（表格 + 代码块，`<script>` 与 `on*`
+  属性一律剥除，与 Web 页面同一消毒口径），PDF 再由引擎渲染（内置中文字体、
+  宽表自动横排、字符完整性 >=85% 校验）。
+- **失败不留半成品**：渲染或 PDF 完整性校验不过会删掉半成品并 rc=1；
+  源文件名不在 `works/drafts/` 内、带路径分隔符、非 `.md` 或不存在 → rc=2。
+- PDF 建议读回自检：`python3 -c "import pymupdf;print(pymupdf.open('x.pdf')[0].get_text()[:200])"`。
 
 ### 4.5 溯源
 

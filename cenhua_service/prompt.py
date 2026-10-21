@@ -115,18 +115,26 @@ _INSTRUCTION = (
     "你是知识库问答助手。回答必须严格基于证据，禁止编造。\n"
     "规则：\n"
     "1. [HINT tier=internal] 段只是背景提示，**不是证据**，不得作为事实来源。\n"
-    "2. 事实只能来自 [EVIDENCE tier=primary] 段，且引文 snippet 必须逐字摘录"
+    "2. [PRIOR tier=context] 段（若存在）是先前对话轮次，只用于理解指代与"
+    "延续话题，**不是证据**，不得引用其内容作为事实或写入 citations。\n"
+    "3. 事实只能来自 [EVIDENCE tier=primary] 段，且引文 snippet 必须逐字摘录"
     "原文（<=80字，禁止改写、禁止拼接）。\n"
-    "3. 若证据不足或问题超出证据范围，直接拒答：answer 说明无法回答，"
+    "4. 若证据不足或问题超出证据范围，直接拒答：answer 说明无法回答，"
     "citations 留空数组。\n"
-    "4. 只输出一个 JSON 对象，不要其他文字：\n"
+    "5. 只输出一个 JSON 对象，不要其他文字：\n"
     + ANSWER_SCHEMA + "\n\n"
 )
 
 
-def build_prompt(question, hint_lines, evidence_lines):
-    """组装完整 prompt：指令 + HINT 段 + EVIDENCE 段 + 问题。"""
+def build_prompt(question, hint_lines, evidence_lines, prior_lines=None):
+    """组装完整 prompt：指令 + [PRIOR 段] + HINT 段 + EVIDENCE 段 + 问题。
+
+    prior_lines（M4c-14，session.history_block 产出）置于 HINT 之前，
+    明示为上下文而非证据（hint-not-evidence 同族纪律）。
+    """
     parts = [_INSTRUCTION]
+    if prior_lines:
+        parts.append("\n".join(prior_lines))
     parts.append("\n".join(hint_lines))
     parts.append("\n".join(evidence_lines))
     parts.append(f"\n问题：{question}")

@@ -394,9 +394,11 @@ def assemble(vault, topic, version, sections, cites, mode, doc_ids,
              rid) -> List[str]:
     """渲染草稿（头部含 tier 声明与 rid，尾部含 derived_from/mode）。"""
     docs = L.store_docs(vault)
+    # key 用 doc 前 8 位：cites 已经 resolve_ids 补全为完整 id，而小节里的
+    # 引文还是 LLM 原样的前缀/全 id，前 8 位口径两边都命中（渲染口径一致）
     ok_map = {}
     for c in cites:
-        key = (str(c.get("doc", "")), str(c.get("page", "")),
+        key = (str(c.get("doc", ""))[:8], str(c.get("page", "")),
                str(c.get("snippet", ""))[:80])
         ok_map.setdefault(key, c)
     lines = ["# %s（V%d · %s）" % (topic, version,
@@ -406,12 +408,18 @@ def assemble(vault, topic, version, sections, cites, mode, doc_ids,
              "<!-- draft: topic=%s version=%d rid=%s -->" % (topic, version,
                                                              rid), ""]
     for i, s in enumerate(sections, 1):
-        lines.append("## %d. %s" % (i, s.get("title", "")))
+        title = str(s.get("title", ""))
+        # LLM 可能把骨架里的 "1.《X》" 编号原样带回（模板 prompt 口径），
+        # 已带序号的标题不再叠加前缀，避免出现 "## 1. 1.《X》"
+        if re.match(r"^\s*\d+[.、)]", title):
+            lines.append("## %s" % title.strip())
+        else:
+            lines.append("## %d. %s" % (i, title))
         lines.append("")
         body = (s.get("body") or "").strip()
         lines.append(body if body else "（本节无正文）")
         for c in s.get("citations", []):
-            key = (str(c.get("doc", "")), str(c.get("page", "")),
+            key = (str(c.get("doc", ""))[:8], str(c.get("page", "")),
                    str(c.get("snippet", ""))[:80])
             res = ok_map.get(key, {})
             mark = "✓" if res.get("ok") else "✗"
@@ -909,3 +917,174 @@ def ingest_back(vault, result):
     """草稿回流：照抄 digest 实现（只依赖 path + derived_from 两个字段）。"""
     from cenhua_service import digest as D
     return D.ingest_back(vault, result)
+
+
+# ------------------------------------ Web 侧能力（M4b 任务 11 三件套）----
+
+
+def parse_citations(vault, text: str) -> List[dict]:
+    """草稿全文 -> 结构化引文（在线编辑悬浮提示 / 穿透预览的数据面）。
+
+    与 verify_draft **同一口径**：_CITE_RE 反解 -> resolve_ids 前缀补全
+    -> query.verify_citations（内含穿透）。额外带 "line"（引文行在全文
+    中的行号，从 1 起），供前端把校验结果挂到对应行做悬浮。
+    """
+    from cenhua_service import query as Q
+
+    cites, marks = [], []
+    for m in _CITE_RE.finditer(text or ""):
+        marks.append(text[:m.start()].count("\n") + 1)
+        cites.append({"doc": m.group(1), "page": m.group(2),
+                      "snippet": m.group(3)})
+    if not cites:
+        return []
+    res = Q.verify_citations(vault, resolve_ids(vault, cites))
+    for row, ln in zip(res, marks):
+        row["line"] = ln
+    return res
+
+
+def _norm_map(text):
+    """逐字符版 verify._normalize（NFKC+去空白+全半角折叠）。
+
+    额外返回 norm 串每个字符在原串的下标，供 page_excerpt 把
+    归一化匹配位置映射回原始页文本取上下文窗口。
+    """
+    import unicodedata
+
+    _FOLD = {"，": ",", "。": ".", "：": ":", "；": ";", "（": "(",
+             "）": ")", "“": '"', "”": '"', "‘": "'", "’": "'"}
+    chars, idx = [], []
+    for i, ch in enumerate(text or ""):
+        if ch.isspace():
+            continue
+        c = unicodedata.normalize("NFKC", ch)
+        c = _FOLD.get(c, c)
+        for _ in c:
+            chars.append(c)
+            idx.append(i)
+    return "".join(chars), idx
+
+
+def page_excerpt(vault, doc: str, page, snippet: str, radius: int = 120):
+    """引文穿透预览：snippet 在可引用 primary 页文本中的原文上下文。
+
+    走 tier.penetration（primary 原样 / derived 沿 derived_from 链），
+    与 verify 同口径（归一化后精确匹配）定位，再按原页文本切窗口。
+    找不到 -> 退化为该页开头预览（note 说明），前端始终有东西可展示。
+    返回 {"ok","doc","page","excerpt","via","note"}。
+    """
+    from cenhua_service import tier as T
+
+    if not snippet:
+        return {"ok": False, "doc": doc, "page": page, "excerpt": "",
+                "via": "none", "note": "无 snippet"}
+    targets = T.penetration(vault, doc, page) or [(doc, page)]
+    for pdoc, ppage in targets:
+        pno = ppage if ppage is not None else page
+        page_text = ""
+        for pno_i, ptext in L.text_pages(vault, pdoc):
+            if str(pno_i) == str(pno):
+                page_text = ptext
+                break
+        if not page_text:
+            continue
+        norm, idx = _norm_map(page_text)
+        n, _ = _norm_map(snippet)
+        pos = norm.find(n) if n else -1
+        if pos >= 0:
+            lo = max(0, idx[pos] - radius)
+            hi = min(len(page_text), idx[pos + len(n) - 1] + radius)
+            excerpt = " ".join(page_text[lo:hi].split())
+            return {"ok": True, "doc": pdoc, "page": str(pno),
+                    "excerpt": ("…" if lo > 0 else "") + excerpt
+                    + ("…" if hi < len(page_text) else ""),
+                    "via": "primary", "note": ""}
+        # 该页存在但 snippet 不在：给页首预览（穿透链路对，摘录可能改写）
+        return {"ok": False, "doc": pdoc, "page": str(pno),
+                "excerpt": " ".join(page_text[:2 * radius].split()) + "…",
+                "via": "primary",
+                "note": "snippet 未在该页精确命中（可能被改写），以下为页首"}
+    return {"ok": False, "doc": doc, "page": str(page), "excerpt": "",
+            "via": "none", "note": "文本层不可用或穿透链为空"}
+
+
+def _draft_path(vault, file: str) -> str:
+    """限定 works/drafts/ 内的 .md 文件名（防路径穿越）。非法 -> ""。"""
+    name = os.path.basename(file or "")
+    if (not name.endswith(".md") or name != (file or "")
+            or ".." in name or name.startswith(".")):
+        return ""
+    return os.path.join(drafts_dir(vault), name)
+
+
+def save_draft(vault, file: str, text: str, do_verify: bool = True):
+    """在线编辑保存：原子覆盖 works/drafts/ 下草稿 + 保存后即着重验。
+
+    编辑即修订（不自动 bump 版本；新版本由 --restore / 重新生成产生）。
+    rc：0 成功且引文全过 / 1 落盘失败或有失败引文 / 2 文件名非法或不存在。
+    """
+    path = _draft_path(vault, file)
+    if not path:
+        return {"rc": 2, "lines": ["save: 只允许编辑 works/drafts/ 下的 .md"]}
+    if not os.path.isfile(path):
+        return {"rc": 2, "lines": ["save: 草稿不存在：%s" % file]}
+    try:
+        _atomic_write(path, text)
+    except OSError as exc:
+        return {"rc": 1, "lines": ["save: 落盘失败（%s）" % exc]}
+    lines = ["+ draft saved: works/%s/%s" % (DRAFT_DIR, file)]
+    cites = parse_citations(vault, text) if do_verify else []
+    rc = 0
+    if cites:
+        okn = sum(1 for c in cites if c.get("ok"))
+        lines.append("= 引文重验：%d/%d 通过" % (okn, len(cites)))
+        if okn != len(cites):
+            rc = 1
+            for c in cites:
+                if not c.get("ok"):
+                    lines.append("  ✗ L%d [%s P%s] %s — %s"
+                                 % (c["line"], c["doc"][:8], c["page"],
+                                    c["snippet"][:40], c.get("note", "")))
+    vault.log("draft", ["save file=%s cites=%d" % (file, len(cites))])
+    return {"rc": rc, "lines": lines, "citations": cites}
+
+
+def detail(vault, file: str):
+    """草稿详情（编辑页数据面）：正文 + 引文校验 + 同主题版本列表。
+
+    rc：0 有 / 2 文件名非法或不存在。
+    """
+    path = _draft_path(vault, file)
+    if not path or not os.path.isfile(path):
+        return {"rc": 2, "lines": ["detail: 草稿不存在：%s" % file]}
+    rows = list_drafts(vault)
+    row = next((r for r in rows if r["file"] == file), None)
+    text = _read(path)
+    versions = ([{"file": r["file"], "version": r["version"],
+                  "date": r["date"], "mode": r["mode"]}
+                 for r in rows if row and r["slug"] == row["slug"]])
+    return {"rc": 0, "file": file, "topic": (row or {}).get("topic", ""),
+            "version": (row or {}).get("version", 0),
+            "mode": (row or {}).get("mode", ""), "rid": (row or {}).get(
+                "rid", ""), "text": text,
+            "citations": parse_citations(vault, text),
+            "versions": versions, "schema_version": 1}
+
+
+def diff_files(vault, a: str, b: str):
+    """任意两份草稿（文件名）unified diff —— Web 版本对比用。
+
+    rc：0 有差异 / 1 无差异 / 2 文件名非法或不存在。
+    """
+    pa, pb = _draft_path(vault, a), _draft_path(vault, b)
+    for p, name in ((pa, a), (pb, b)):
+        if not p or not os.path.isfile(p):
+            return {"rc": 2, "lines": ["diff: 草稿不存在：%s" % name]}
+    out = list(difflib.unified_diff(_read(pa).splitlines(),
+                                    _read(pb).splitlines(),
+                                    fromfile=a, tofile=b, lineterm="", n=2))
+    if not out:
+        return {"rc": 1, "lines": ["diff: 两份草稿内容一致"]}
+    return {"rc": 0, "lines": out, "diff": out, "a": a, "b": b,
+            "schema_version": 1}

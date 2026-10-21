@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""M3b Web UI + 局域网 API 测试（任务 12）。
+"""M3b Web UI + 局域网 API 测试（任务 12）+ M4b 图谱/草稿端点与页面。
 
-覆盖：鉴权 fail-closed / 限流 429 / M4 端点恒 404 / docmeta 往返 /
-任务通道 JSON 轮询 + SSE 增量重放 / 页面登录与四页 / multipart 摄取 /
-rid 全链路日志 / host:port 配置解析。
+覆盖：鉴权 fail-closed / 限流 429 / graph+draft 真端点（M4b）/
+docmeta 往返 / 任务通道 JSON 轮询 + SSE 增量重放 / 页面登录与页面集 /
+multipart 摄取 / rid 全链路日志 / host:port 配置解析。
 基座与 test_channel.py 同款：临时 CENHUA_HOME + `cenhua init`。
 """
 import httpx
@@ -17,6 +17,7 @@ import tempfile
 import threading
 import time as _time
 import unittest
+from urllib.parse import quote
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _TMP = tempfile.mkdtemp(prefix="cenhua-test-webui-")
@@ -29,6 +30,7 @@ import m_lib as L  # noqa: E402
 import uvicorn  # noqa: E402
 from cenhua_service import core  # noqa: E402
 from cenhua_service import docmeta as DM  # noqa: E402
+from cenhua_service import draft as DR  # noqa: E402
 from cenhua_service import jobs as J  # noqa: E402
 from cenhua_service.webui import app as W  # noqa: E402
 from cenhua_service.webui import pages as P  # noqa: E402
@@ -218,18 +220,199 @@ class TestRateLimit(_WebBase):
         self.assertEqual(r.json()["detail"]["error"], "rate limit exceeded")
 
 
-class TestM4Footnote(_WebBase):
-    """graph/draft 恒 404 + 版本脚注；无需鉴权（任务 10）。"""
+class TestM4bGraphApi(_WebBase):
+    """M4b 任务 6/16：GET /api/v1/graph 真端点（guard 鉴权 + view 形态）。"""
 
-    def test_01_graph_404(self):
+    def setUp(self):
+        super().setUp()
+        _seed_doc(self.vault, "pi-graph1", "graph-src.txt",
+                  ["分布式 共识 Raft 选主 协议", "第二页 日志 复制 机制"])
+
+    def test_01_graph_requires_auth(self):
         r = self.client.get("/api/v1/graph")
-        self.assertEqual(r.status_code, 404)
-        self.assertIn("M4", r.json()["detail"])
+        self.assertEqual(r.status_code, 401)
 
-    def test_02_draft_404(self):
-        r = self.client.post("/api/v1/draft", json={})
+    def test_02_graph_shape(self):
+        r = self.client.get("/api/v1/graph", headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()                          # 空图也会自动 rebuild
+        for key in ("ts", "tier", "n_docs", "center", "nodes", "edges",
+                    "total_nodes", "total_edges", "truncated"):
+            self.assertIn(key, body)
+        self.assertEqual(body["schema_version"], 1)
+        self.assertIsInstance(body["nodes"], list)
+        self.assertIsInstance(body["edges"], list)
+
+    def test_03_graph_entity_param(self):
+        r = self.client.get("/api/v1/graph?entity=不存在的实体",
+                            headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["center"], "")   # 解析不到 -> 无中心
+
+    def test_04_graph_max_nodes_bound(self):
+        r = self.client.get("/api/v1/graph?max_nodes=9999",
+                            headers=self.auth)
+        self.assertEqual(r.status_code, 422)       # Query le=500
+
+
+class TestM4bDraftApi(_WebBase):
+    """M4b 任务 16/11：POST /api/v1/draft + /drafts 系列端点。"""
+
+    def setUp(self):
+        super().setUp()
+        _seed_doc(self.vault, "pi-cite1", "cite-src.txt",
+                  ["分布式 共识 算法 Raft 选主", "第二页 日志 复制"])
+        self.dfile = "共识_V1_2026-01-01.md"
+        self.dtext = ("<!-- draft: topic=共识 rid=r1 -->\n"
+                      "<!-- derived_from: pi-cite1 -->\n"
+                      "<!-- mode: new -->\n"
+                      "# 共识\n\n## 1. 概述\n\n正文一段。\n\n"
+                      "> 引文 [pi-cite1 P1] 分布式 共识 算法 Raft 选主 · ✓\n")
+        DR._atomic_write(os.path.join(DR.drafts_dir(self.vault),
+                                      self.dfile), self.dtext)
+
+    # ---- POST /api/v1/draft（任务通道提交面） ----
+
+    def test_01_draft_no_topic_422(self):
+        r = self.client.post("/api/v1/draft", json={}, headers=self.auth)
+        self.assertEqual(r.status_code, 422)
+
+    def test_02_draft_bad_mode_422(self):
+        r = self.client.post("/api/v1/draft",
+                             json={"topic": "共识", "mode": "xx"},
+                             headers=self.auth)
+        self.assertEqual(r.status_code, 422)
+
+    def test_03_draft_requires_auth(self):
+        r = self.client.post("/api/v1/draft", json={"topic": "x"})
+        self.assertEqual(r.status_code, 401)
+
+    def test_04_draft_dry_run_submits_job(self):
+        r = self.client.post("/api/v1/draft",
+                             json={"topic": "共识", "dry_run": True},
+                             headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn("job_id", body["job"])
+        self.assertTrue(body["events_url"].startswith("/api/v1/jobs/"))
+        st = J.wait(J.JobHandle.from_dict(body["job"]), poll=0.01,
+                    timeout=30)
+        self.assertIn(st.state, (J.DONE, J.FAILED))   # dry_run 不打网关
+
+    # ---- GET /drafts 列表 + detail ----
+
+    def test_05_list_drafts(self):
+        r = self.client.get("/api/v1/drafts", headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["drafts"][0]["file"], self.dfile)
+        self.assertEqual(body["drafts"][0]["topic"], "共识")
+        self.assertEqual(body["drafts"][0]["version"], 1)
+
+    def test_06_detail_citations_ok(self):
+        r = self.client.get("/api/v1/drafts/"
+                            + quote(self.dfile),
+                            headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(body["rc"], 0)
+        self.assertEqual(body["topic"], "共识")
+        self.assertIn("正文一段", body["text"])
+        self.assertEqual(len(body["citations"]), 1)
+        c = body["citations"][0]
+        self.assertTrue(c["ok"])                     # primary 文本层直验
+        self.assertEqual(c["via"], "direct")
+        self.assertEqual(c["doc"], "pi-cite1")       # resolve_ids 补全
+        self.assertEqual(c["line"], 9)
+        self.assertEqual(len(body["versions"]), 1)
+
+    def test_07_detail_missing_404(self):
+        r = self.client.get("/api/v1/drafts/nope_V1_2026-01-01.md",
+                            headers=self.auth)
         self.assertEqual(r.status_code, 404)
-        self.assertIn("v0.5", r.json()["detail"])
+
+    def test_08_detail_traversal_404(self):
+        r = self.client.get("/api/v1/drafts/%2e%2e%2Fvault.yaml",
+                            headers=self.auth)
+        self.assertIn(r.status_code, (404, 422))     # 穿越不进文件系统
+
+    # ---- PUT 保存 + 重验 ----
+
+    def test_09_put_save_reverify_fail(self):
+        bad = self.dtext.replace("Raft 选主", "ZooKeeper 选主")
+        r = self.client.put("/api/v1/drafts/" + quote(self.dfile),
+                            json={"text": bad}, headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(body["rc"], 1)              # 引文重验有失败
+        self.assertFalse(body["citations"][0]["ok"])
+        with open(os.path.join(DR.drafts_dir(self.vault), self.dfile),
+                  encoding="utf-8") as fh:           # 读回比对：已落盘
+            self.assertIn("ZooKeeper", fh.read())
+
+    def test_10_put_save_ok(self):
+        r = self.client.put("/api/v1/drafts/" + quote(self.dfile),
+                            json={"text": self.dtext}, headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["rc"], 0)
+
+    def test_11_put_missing_404(self):
+        r = self.client.put("/api/v1/drafts/nope_V1_2026-01-01.md",
+                            json={"text": "x"}, headers=self.auth)
+        self.assertEqual(r.status_code, 404)
+
+    def test_12_put_text_required_422(self):
+        r = self.client.put("/api/v1/drafts/" + quote(self.dfile),
+                            json={}, headers=self.auth)
+        self.assertEqual(r.status_code, 422)
+
+    # ---- 引文穿透 excerpt ----
+
+    def test_13_excerpt_direct(self):
+        r = self.client.get("/api/v1/drafts/"
+                            + quote(self.dfile) + "/excerpt",
+                            params={"doc": "pi-cite1", "page": "1",
+                                    "snippet": "Raft 选主"},
+                            headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body["ok"])
+        self.assertIn("Raft", body["excerpt"])
+        self.assertEqual(body["doc"], "pi-cite1")
+
+    def test_14_excerpt_miss_falls_back(self):
+        r = self.client.get("/api/v1/drafts/"
+                            + quote(self.dfile) + "/excerpt",
+                            params={"doc": "pi-cite1", "page": "1",
+                                    "snippet": "绝无此句"},
+                            headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertFalse(body["ok"])
+        self.assertIn("excerpt", body)               # 页首预览兜底
+
+    # ---- 版本对比 diff ----
+
+    def test_15_diff(self):
+        f2 = "共识_V2_2026-01-02.md"
+        DR._atomic_write(os.path.join(DR.drafts_dir(self.vault), f2),
+                         self.dtext.replace("正文一段", "正文两段扩写"))
+        r = self.client.get("/api/v1/drafts/-/diff",
+                            params={"a": self.dfile, "b": f2},
+                            headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(body["rc"], 0)
+        self.assertTrue(any("扩写" in ln for ln in body["diff"]))
+        r2 = self.client.get("/api/v1/drafts/-/diff",
+                             params={"a": self.dfile, "b": self.dfile},
+                             headers=self.auth)
+        self.assertEqual(r2.json()["rc"], 1)         # 一致
+        r3 = self.client.get("/api/v1/drafts/-/diff",
+                             params={"a": "nope_V1_2026-01-01.md",
+                                     "b": self.dfile}, headers=self.auth)
+        self.assertEqual(r3.status_code, 404)
 
 
 class TestApiEndpoints(_WebBase):
@@ -545,6 +728,44 @@ class TestPages(_WebBase):
         self.assertTrue(os.path.isfile(logf))
         with open(logf, encoding="utf-8") as fh:
             self.assertIn("rid-test GET /api/v1/stats 200", fh.read())
+
+    # ------------------------- M4b 页面（任务 6/11 页面面） -------------
+    def test_12_graph_page(self):
+        for path in ("/graph",):
+            self.assertEqual(self.client.get(path).status_code, 303)
+        self.login()
+        r = self.client.get("/graph")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("force.js", r.text)            # 力导向脚本挂载
+        self.assertIn("CENHUA_GRAPH", r.text)        # 参数注入
+
+    def test_13_drafts_pages(self):
+        dfile = "页面_V1_2026-01-01.md"
+        text = ("<!-- draft: topic=页面 -->\n<!-- mode: new -->\n"
+                "# 页面\n\n## 1. 段\n\n正文。\n\n"
+                "> 引文 [pi-page P1] 页面 测试 语料 · ✓\n")
+        DR._atomic_write(os.path.join(DR.drafts_dir(self.vault),
+                                      dfile), text)
+        self.login()
+        r = self.client.get("/drafts")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn(quote(dfile), r.text)          # 链接为 URL 编码
+        r2 = self.client.get("/drafts/" + quote(dfile))
+        self.assertEqual(r2.status_code, 200)
+        self.assertIn("CENHUA_DRAFT", r2.text)
+        self.assertIn("页面 测试 语料", r2.text)      # 引文表带 snippet
+        self.assertIn("V1", r.text)                  # 列表页含版本
+        r3 = self.client.get("/drafts/nope_V1_2026-01-01.md")
+        self.assertEqual(r3.status_code, 404)
+
+    def test_14_drafts_generate_requires_topic(self):
+        self.login()
+        r = self.client.post("/drafts/generate", data={})
+        self.assertEqual(r.status_code, 422)
+        r2 = self.client.post("/drafts/generate",
+                              data={"topic": "共识", "dry_run": "on"})
+        self.assertEqual(r2.status_code, 200)
+        self.assertIn("data-job=", r2.text)          # joblog 接线
 
 
 class TestConfig(_WebBase):

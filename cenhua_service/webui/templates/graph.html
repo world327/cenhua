@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h3>知识图谱（力导向）</h3>
+  <p class="muted">数据 = <code>meta/graph.json</code>（tier=internal-artifact，只能作导航 hint）。
+  mentions 边默认隐藏（防星形糊图）；搜索实体可展开其一跳邻居。
+  节点：蓝=文档，灰=实体，橙=枢纽实体。滚轮缩放，拖拽平移/挪节点。</p>
+  <form class="row" method="get" action="/graph">
+    <input type="text" name="entity" value="{{ entity }}" placeholder="实体关键词（可空 = 全图热度 top-N）" style="max-width:320px">
+    <input type="number" name="max_nodes" value="{{ max_nodes }}" min="1" max="300" style="width:90px" title="max_nodes">
+    <button type="submit">应用</button>
+    {% if entity %}<a class="sec button" href="/graph">全图</a>{% endif %}
+  </form>
+  <div id="status" class="muted">加载中…</div>
+</div>
+<div class="card" style="padding:0;overflow:hidden">
+  <div id="stage" style="position:relative;height:600px">
+    <canvas id="cv" style="width:100%;height:100%;display:block;cursor:grab"></canvas>
+    <div id="tip" class="graph-tip" hidden></div>
+  </div>
+</div>
+<div id="detail" class="card" hidden>
+  <h4 id="detail-title"></h4>
+  <div id="detail-body" class="mono"></div>
+</div>
+<script>
+  window.CENHUA_GRAPH = {entity: {{ entity|tojson }}, maxNodes: {{ max_nodes }}};
+</script>
+<script src="/static/force.js"></script>
+{% endblock %}

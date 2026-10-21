@@ -15,9 +15,6 @@ from cenhua_service import core
 from cenhua_service import jobs as J
 from cenhua_service.webui import security
 
-# 版本脚注（R2-R10 + R3-T8.1 + R4-F4）：v0.5 恒 404 的 M4 预告端点
-M4_MESSAGE = "not available in v0.5 — v0.6 起，随 M4 交付"
-
 
 def to_json(obj):
     """dataclass / list[dataclass] / 原值 -> JSON 可序列化对象。"""
@@ -285,13 +282,89 @@ def build_router(vault):
                                  headers={"Cache-Control": "no-cache",
                                           "X-Accel-Buffering": "no"})
 
-    # ---------------------------------- M4 预告端点（任务 10，恒 404） --
-    @router.get("/graph")
-    def api_graph():
-        raise HTTPException(status_code=404, detail=M4_MESSAGE)
+    # ------------------------------------------- 图谱（M4b 任务 6/16） --
+    @router.get("/graph", dependencies=guard)
+    def api_graph(entity: str = Query("", max_length=80),
+                  max_nodes: int = Query(80, ge=1, le=500)):
+        from cenhua_service import graph as G
+        return G.view(vault, entity_kw=entity or None, max_nodes=max_nodes)
 
-    @router.post("/draft")
-    def api_draft():
-        raise HTTPException(status_code=404, detail=M4_MESSAGE)
+    # ------------------------------------------- 草稿（M4a-7 / M4b-16） --
+    @router.post("/draft", dependencies=guard)
+    async def api_draft(request: Request):
+        from cenhua_service import draft as D
+        body = await request.json()
+        topic = (body.get("topic") or "").strip()
+        if not topic:
+            raise HTTPException(status_code=422,
+                                detail=err(422, "topic required"))
+        mode = body.get("mode") or "new"
+        if mode not in ("new", "extend", "rewrite"):
+            raise HTTPException(status_code=422,
+                                detail=err(422, "mode must be new/extend/"
+                                               "rewrite"))
+        spec = core.channel_job("draft", D.draft_flow, vault, topic=topic,
+                                mode=mode,
+                                section=str(body.get("section") or ""),
+                                version=str(body.get("version") or ""),
+                                top=int(body.get("top", D.MAX_DOCS)),
+                                dry_run=bool(body.get("dry_run")),
+                                force=bool(body.get("force")),
+                                max_cost=body.get("max_cost"),
+                                rid=str(body.get("rid") or ""))
+        return _submit(spec)
+
+    # ---------------------------- 草稿编辑三件套（M4b 任务 11 数据面） --
+    @router.get("/drafts", dependencies=guard)
+    def api_drafts(topic: str = Query("", max_length=120)):
+        from cenhua_service import draft as D
+        rows = D.list_drafts(vault, topic=topic)
+        return {"drafts": [{k: r[k] for k in
+                            ("file", "slug", "topic", "version", "date",
+                             "mode", "rid")} for r in rows],
+                "total": len(rows), "schema_version": 1}
+
+    @router.get("/drafts/{fname}", dependencies=guard)
+    def api_draft_detail(fname: str):
+        from cenhua_service import draft as D
+        out = D.detail(vault, fname)
+        if out.get("rc") != 0:
+            raise HTTPException(status_code=404,
+                                detail=err(404, "draft not found", fname))
+        return out
+
+    @router.put("/drafts/{fname}", dependencies=guard)
+    async def api_draft_save(request: Request, fname: str):
+        from cenhua_service import draft as D
+        body = await request.json()
+        text = body.get("text")
+        if not isinstance(text, str):
+            raise HTTPException(status_code=422,
+                                detail=err(422, "text required"))
+        out = D.save_draft(vault, fname, text,
+                           do_verify=bool(body.get("verify", True)))
+        if out["rc"] == 2:
+            raise HTTPException(status_code=404,
+                                detail=err(404, "draft not found", fname))
+        return out | {"schema_version": 1}
+
+    @router.get("/drafts/{fname}/excerpt", dependencies=guard)
+    def api_draft_excerpt(fname: str, doc: str = Query("", max_length=80),
+                          page: str = Query(..., min_length=1),
+                          snippet: str = Query(..., min_length=1)):
+        """引文穿透预览：doc 缺省用 fname（detail 里 doc 已是补全后的完整 id）。"""
+        from cenhua_service import draft as D
+        return D.page_excerpt(vault, doc or fname, page, snippet)
+
+    @router.get("/drafts/-/diff", dependencies=guard)
+    def api_draft_diff(a: str = Query(..., min_length=1),
+                       b: str = Query(..., min_length=1)):
+        from cenhua_service import draft as D
+        out = D.diff_files(vault, a, b)
+        if out["rc"] == 2:
+            raise HTTPException(status_code=404,
+                                detail=err(404, "draft not found",
+                                           "%s / %s" % (a, b)))
+        return out
 
     return router

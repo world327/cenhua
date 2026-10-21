@@ -55,6 +55,15 @@ def _env():
     env = Environment(loader=FileSystemLoader(TEMPLATE_DIR),
                       autoescape=select_autoescape(["html"]))
     env.filters["mermaid_label"] = _mermaid_label
+    import json as _json
+
+    def _tojson(v):
+        """脚本内嵌 JSON（Markup 免二次转义；</ 转义防提前闭合 script）。"""
+        from markupsafe import Markup
+        return Markup(_json.dumps(v, ensure_ascii=False)
+                      .replace("</", "<\\/"))
+
+    env.filters["tojson"] = _tojson
     return env
 
 
@@ -305,6 +314,57 @@ def build_pages(vault):
             raw = fh.read()
         return render("digest_view.html", request, fname=fname,
                       body=_md_to_html(raw))
+
+    # ------------------------------------------- 图谱页（M4b 任务 6） --
+    @router.get("/graph", response_class=HTMLResponse)
+    def page_graph(request: Request, entity: str = "",
+                   max_nodes: int = 80):
+        """力导向图画布；数据走 GET /api/v1/graph（同 cookie 鉴权）。"""
+        return render("graph.html", request, entity=entity,
+                      max_nodes=min(max(1, max_nodes), 300))
+
+    # ---------------------------------------- 草稿页（M4b 任务 11） ----
+    @router.get("/drafts", response_class=HTMLResponse)
+    def page_drafts(request: Request):
+        from cenhua_service import draft as D
+        groups, cur = [], None
+        for r in D.list_drafts(vault):
+            if not cur or cur["slug"] != r["slug"]:
+                cur = {"slug": r["slug"], "topic": r["topic"], "rows": []}
+                groups.append(cur)
+            cur["rows"].append(r)
+        for g in groups:                       # 最新版在前（编辑入口用）
+            g["latest"] = g["rows"][-1]
+        return render("drafts.html", request, groups=groups)
+
+    @router.post("/drafts/generate")
+    async def page_draft_generate(request: Request):
+        """草稿列表页的生成入口：走任务通道，回 SSE joblog 部件。"""
+        if not _authed(vault, request):
+            return _redirect_login()
+        from fastapi.responses import HTMLResponse as H
+        from cenhua_service import draft as D
+        form = await request.form()
+        topic = (form.get("topic") or "").strip()
+        if not topic:
+            return H("<p class='bad'>topic required</p>", status_code=422)
+        spec = core.channel_job("draft", D.draft_flow, vault, topic=topic,
+                                dry_run=form.get("dry_run") in
+                                ("on", "true"),
+                                force=form.get("force") in ("on", "true"))
+        handle = J.submit(spec)
+        return H('<div id="log" data-job="%s" data-status-url="/api/v1/jobs/%s"'
+                 ' class="joblog"></div>'
+                 '<script src="/static/joblog.js"></script>'
+                 % (handle.job_id, handle.job_id))
+
+    @router.get("/drafts/{fname}", response_class=HTMLResponse)
+    def page_draft_edit(request: Request, fname: str):
+        from cenhua_service import draft as D
+        out = D.detail(vault, fname)
+        if out.get("rc") != 0:
+            return HTMLResponse("(draft not found)", status_code=404)
+        return render("draft_edit.html", request, d=out)
 
     # ------------------------------------------------------------ 首页 --
     @router.get("/")

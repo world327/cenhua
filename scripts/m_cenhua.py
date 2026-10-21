@@ -117,6 +117,20 @@ TOPIC DRAFTING (M4a; works/drafts, tier=derived-doc)
   draft --restore "主题" <V>        re-save an old version as new version    [OFFLINE]
   draft --verify ["主题|文件名"]     re-verify citations (same gate as query)  [OFFLINE]
 
+TEMPLATES & EXPORT (M4c; works/drafts + works/exports)
+  template --list                   built-in + custom templates              [OFFLINE]
+  template <id>                     show one template                        [OFFLINE]
+  template --add <id> --name N      add custom template -> meta/templates/   [OFFLINE]
+                       (--section S ... | --sections A,B) [--force]
+  template <id> "主题" [--top N]     template-based draft (LLM)  [GATEWAY]
+                       [--dry-run|--force|--max-cost X]
+                                     long-job gate: CENHUA_LONGJOB_MAX_COST_CNY
+  export <草稿.md> [--md|--html|--pdf]  export draft (default md)            [OFFLINE]
+
+MULTI-TURN & RERANK (M4c)
+  query "问题" --session SID        multi-turn context (meta/sessions/)
+  query "问题" --no-rerank          skip small-model rerank (default on)
+
 Examples
   cenhua init contracts --title "Client contracts"
   cp ~/Downloads/*.pdf ~/.cenhua/vaults/contracts/inbox/
@@ -130,7 +144,8 @@ VALUE_OPTS = {"--title", "--gateway", "--home", "--vault", "-d", "--doc",
               "-p", "--page", "-g", "--grep", "--limit", "--workers", "--top",
               "--set", "--interval", "-n", "--max", "--since",
               "--host", "--port", "--max-hops", "--max-nodes",
-              "--max-cost", "--doc"}
+              "--max-cost", "--doc", "--session", "--name", "--section",
+              "--sections"}
 
 
 def positional(rest):
@@ -361,6 +376,12 @@ def main():
     if cmd == "draft":
         import m_draft
         return m_draft.draft_cmd(v, rest)
+    if cmd == "template":
+        import m_template
+        return m_template.template_cmd(v, rest)
+    if cmd == "export":
+        import m_export
+        return m_export.export_cmd(v, rest)
 
     if cmd == "status":
         import m_vault

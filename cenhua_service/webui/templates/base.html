@@ -16,7 +16,9 @@
     <a href="/ingest" class="{{ 'on' if page=='ingest' }}">摄取</a>
     <a href="/search" class="{{ 'on' if page=='search' }}">检索</a>
     <a href="/weave" class="{{ 'on' if page=='weave' }}">编织</a>
+    <a href="/graph" class="{{ 'on' if page=='graph' }}">图谱</a>
     <a href="/insights" class="{{ 'on' if page in ('insights','digest_view') }}">洞察</a>
+    <a href="/drafts" class="{{ 'on' if page in ('drafts','draft_edit') }}">草稿</a>
     <a href="/logout" class="out">退出</a>
   </nav>
   <span class="muted">docs {{ stats.docs }} · text {{ stats.text_have }} · inbox {{ stats.inbox_pending }}{% if not stats.gateway_ready %} · <b class="bad">网关未配置</b>{% endif %}</span>

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h3>草稿（works/drafts · tier=derived-doc）</h3>
+  <p class="muted">由 <code>cenhua draft "主题"</code> 或 <code>POST /api/v1/draft</code> 产出。
+  在线编辑保存即重验引文；历史版本可对比、可 <code>--restore</code> 另存新版。</p>
+  <form class="row" method="post" action="/drafts/generate" hx-post="/drafts/generate" hx-target="#genjob" hx-swap="innerHTML">
+    <input type="text" name="topic" placeholder="主题（生成新草稿）" required style="max-width:340px">
+    <label class="muted"><input type="checkbox" name="dry_run"> dry-run（只估算成本）</label>
+    <label class="muted"><input type="checkbox" name="force"> force（跳预算闸）</label>
+    <button type="submit">生成</button>
+  </form>
+  <div id="genjob"></div>
+</div>
+{% if groups %}
+<div class="card">
+  <table>
+    <tr><th>主题</th><th>版本</th><th>日期</th><th>引擎</th><th>操作</th></tr>
+    {% for g in groups %}
+    {% for r in g.rows|reverse %}
+    <tr>
+      {% if loop.first %}<td rowspan="{{ g.rows|length }}">{{ g.topic }}</td>{% endif %}
+      <td>V{{ r.version }}</td>
+      <td class="mono">{{ r.date }}</td>
+      <td class="mono">{{ r.mode or '-' }}</td>
+      <td>
+        <a href="/drafts/{{ r.file|urlencode }}">编辑</a>
+        {% if not loop.first %}
+        · <a href="/drafts/{{ g.latest.file|urlencode }}?diff={{ r.file|urlencode }}">对比最新版</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    {% endfor %}
+  </table>
+</div>
+{% else %}
+<div class="card"><p class="muted">还没有草稿。上面填主题生成，或 CLI：<code>cenhua draft "主题" --dry-run</code> 先看预算。</p></div>
+{% endif %}
+<script src="/static/joblog.js"></script>
+{% endblock %}

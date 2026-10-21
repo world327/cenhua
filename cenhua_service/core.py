@@ -189,11 +189,12 @@ def find(vault, terms, docs_selector=None, max_per_doc=MAX_HITS_PER_DOC,
 
 # ------------------------------------------------------------ query ----
 def query(vault, question, include_derived=False, dry=False, force=False,
-          top=3) -> QueryResult:
+          top=3, session="", no_rerank=False) -> QueryResult:
     """四段检索（委托 query_flow），结构化返回。"""
     from cenhua_service import query as Q
     rc, lines = Q.query_flow(vault, question, include_derived=include_derived,
-                             dry=dry, force=force, top=top)
+                             dry=dry, force=force, top=top, session=session,
+                             no_rerank=no_rerank)
     return QueryResult(answer="\n".join(lines), lines=list(lines), rc=rc)
 
 

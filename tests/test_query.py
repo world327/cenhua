@@ -440,6 +440,251 @@ class FlowTest(_VaultBase):
         self.assertTrue(R.pending(self.vault))
 
 
+# ------------------------------------------------- 多轮上下文（M4c-14） ----
+class SessionUnitTest(_VaultBase):
+    """session 模块纯函数：存档/截断/非法 sid/历史块。"""
+
+    def setUp(self):
+        from cenhua_service import session as SS
+        self.SS = SS
+        self.sid = "s-ut1"
+        self.addCleanup(lambda: os.path.isfile(os.path.join(
+            self.vault.meta, "sessions", self.sid + ".json"))
+            and os.remove(os.path.join(self.vault.meta, "sessions",
+                                       self.sid + ".json")))
+
+    def test_80_record_and_history(self):
+        self.assertTrue(self.SS.record(
+            self.vault, self.sid, "违约金是多少", "百分之五",
+            [{"doc": "pi-aaa1111", "page": "1", "snippet": "s"}]))
+        block = self.SS.history_block(self.vault, self.sid)
+        self.assertTrue(block[0].startswith("[PRIOR tier=context]"))
+        joined = "\n".join(block)
+        self.assertIn("不是证据", joined)
+        self.assertIn("违约金是多少", joined)
+        self.assertIn("pi-aaa11 P1", joined)     # doc 前 8 位 + 页
+
+    def test_81_turns_capped(self):
+        for i in range(self.SS.TURNS_MAX + 3):
+            self.SS.record(self.vault, self.sid, "问题%d" % i, "答%d" % i, [])
+        data = self.SS.load(self.vault, self.sid)
+        self.assertEqual(len(data["turns"]), self.SS.TURNS_MAX)
+        self.assertNotIn("问题0", json.dumps(data, ensure_ascii=False))
+        self.assertIn("问题%d" % (self.SS.TURNS_MAX + 2),
+                      json.dumps(data, ensure_ascii=False))
+
+    def test_82_invalid_sid_never_throws(self):
+        for bad in ("../evil", "a/b", "", "非法会话", "x" * 65):
+            self.assertFalse(self.SS.record(self.vault, bad, "q", "a", []))
+            self.assertEqual(self.SS.history_block(self.vault, bad), [])
+        self.assertTrue(any("非法 sid" in l for l in self.SS.tail_lines(
+            self.vault, "../evil", False)))
+
+    def test_83_corrupt_file_degrades(self):
+        d = os.path.join(self.vault.meta, "sessions")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, self.sid + ".json"), "w") as f:
+            f.write("{not json")
+        self.assertIsNone(self.SS.load(self.vault, self.sid))
+        self.assertEqual(self.SS.history_block(self.vault, self.sid), [])
+
+
+class SessionFlowTest(_VaultBase):
+    """query --session 端到端（mock LLM）：注入 prompt + 轮次存档。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        os.environ["PI_BASE"] = "http://mock.local/v1"
+        os.environ["PI_KEY"] = "mock-key"
+
+    @classmethod
+    def tearDownClass(cls):
+        os.environ.pop("PI_BASE", None)
+        os.environ.pop("PI_KEY", None)
+
+    def setUp(self):
+        self.sid = "s-flow1"
+        self.dir = os.path.join(self.vault.meta, "sessions")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    @staticmethod
+    def _ans():
+        return ('{"answer": "百分之五。", "citations": '
+                '[{"doc": "pi-aaa1111", "page": "1", '
+                '"snippet": "违约金条款：任何一方违约，须按合同金额的百分之五支付违约金。"}]}')
+
+    def test_84_instruction_has_prior_rule(self):
+        self.assertIn("PRIOR", P._INSTRUCTION)
+
+    @mock.patch("cenhua_service.refine.call_llm")
+    def test_85_second_turn_sees_prior(self, mock_llm):
+        mock_llm.return_value = (self._ans(), 100, 50)
+        rc1, lines1 = Q.query_flow(self.vault, "违约金比例是多少",
+                                   session=self.sid)
+        self.assertEqual(rc1, 0)
+        self.assertTrue(any("已保存 1 轮" in l for l in lines1))
+        rc2, lines2 = Q.query_flow(self.vault, "合同金额呢",
+                                   session=self.sid)
+        self.assertEqual(rc2, 0)
+        prompt2 = mock_llm.call_args_list[-1][0][0]
+        self.assertIn("[PRIOR tier=context]", prompt2)
+        self.assertIn("违约金比例是多少", prompt2)      # 上一轮问题可指代
+        self.assertIn("已保存 2 轮", "\n".join(lines2))
+        # PRIOR 段必须在 HINT 段之前（\n\n 前缀避开 _INSTRUCTION 内文提及）
+        self.assertLess(prompt2.index("\n\n[PRIOR"),
+                        prompt2.index("\n\n[HINT"))
+
+    @mock.patch("cenhua_service.refine.call_llm")
+    def test_86_dry_run_shows_injection(self, mock_llm):
+        from cenhua_service import session as SS
+        SS.record(self.vault, self.sid, "先前问题", "先前答案", [])
+        rc, lines = Q.query_flow(self.vault, "违约金比例是多少",
+                                 dry=True, session=self.sid)
+        self.assertEqual(rc, 0)
+        self.assertTrue(any("已注入 1 轮" in l for l in lines))
+        mock_llm.assert_not_called()
+
+    @mock.patch("cenhua_service.refine.call_llm")
+    def test_87_invalid_sid_flow_survives(self, mock_llm):
+        mock_llm.return_value = (self._ans(), 10, 5)
+        rc, lines = Q.query_flow(self.vault, "违约金比例是多少",
+                                 session="../evil")
+        self.assertEqual(rc, 0)
+        self.assertTrue(any("非法 sid" in l for l in lines))
+        self.assertFalse(os.path.isdir(os.path.join(
+            os.path.dirname(self.vault.meta), "evil_sessions")))
+
+
+# ----------------------------------------------------- 重排器（M4c-15） ----
+class RerankUnitTest(unittest.TestCase):
+    def test_90_parse_order_valid(self):
+        from cenhua_service.rerank import parse_order
+        self.assertEqual(parse_order('{"order": [2,0,1]}', 3), [2, 0, 1])
+
+    def test_91_parse_order_dedup_fill(self):
+        from cenhua_service.rerank import parse_order
+        # 越界/非整数丢弃，缺失按原序补尾 -> 必为排列
+        self.assertEqual(parse_order('{"order": [2, 2, 9, "x", 0]}', 4),
+                         [2, 0, 1, 3])
+
+    def test_92_parse_order_invalid_none(self):
+        from cenhua_service.rerank import parse_order
+        self.assertIsNone(parse_order("", 3))
+        self.assertIsNone(parse_order("没有 JSON", 3))
+        self.assertIsNone(parse_order('{"order": "abc"}', 3))
+
+    def test_93_prepare_pool_gate(self):
+        from cenhua_service import rerank as RR
+        fused = [{"doc": "d%d" % i, "name": "", "score": 0, "tier": "primary",
+                  "derived_from": [], "sim": None, "terms": []}
+                 for i in range(10)]
+        self.assertIsNone(RR.prepare(None, "q", fused[:2], 3))   # <=top 不排
+        prompt, pool = RR.prepare(_FakeVault(), "q", fused, 2)
+        self.assertEqual(len(pool), 2 * RR.POOL_MULT)            # 池=top*3
+        self.assertIn("问题：q", prompt)
+
+    def test_94_enabled_switch(self):
+        from cenhua_service import rerank as RR
+        os.environ.pop("CENHUA_RERANK", None)
+        self.assertTrue(RR.enabled(None))
+        os.environ["CENHUA_RERANK"] = "0"
+        try:
+            self.assertFalse(RR.enabled(None))
+        finally:
+            os.environ.pop("CENHUA_RERANK", None)
+
+    def test_95_apply_failure_never_throws(self):
+        from cenhua_service import rerank as RR
+        fused = [{"doc": "a"}, {"doc": "b"}]
+        with mock.patch("cenhua_service.refine.call_llm",
+                        side_effect=RuntimeError("down")):
+            out, note, toks = RR.apply("p", fused, fused)
+        self.assertEqual(out, fused)
+        self.assertIn("调用失败原序", note)
+        self.assertIsNone(toks)
+        with mock.patch("cenhua_service.refine.call_llm",
+                        return_value=("胡言乱语", 1, 1)):
+            out, note, toks = RR.apply("p", fused, fused)
+        self.assertEqual(out, fused)
+        self.assertIn("不可解析", note)
+
+
+class _FakeVault:
+    """rerank.previews 仅需 text_pages 可调用；异常已被吞，None 即可跑通。"""
+
+
+class RerankFlowTest(_VaultBase):
+    """query_flow 接线：Top-K 提升 + 关闭开关 + 台账合并。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        os.environ["PI_BASE"] = "http://mock.local/v1"
+        os.environ["PI_KEY"] = "mock-key"
+
+    @classmethod
+    def tearDownClass(cls):
+        os.environ.pop("PI_BASE", None)
+        os.environ.pop("PI_KEY", None)
+        os.environ.pop("CENHUA_RERANK", None)
+
+    _ANS = ('{"answer": "百分之三。", "citations": '
+            '[{"doc": "pi-ccc3333", "page": "1", '
+            '"snippet": "竞品 A 的定价策略为按年订阅，违约金比例为百分之三。"}]}')
+
+    @mock.patch("cenhua_service.refine.call_llm")
+    def test_96_rerank_lifts_target_doc(self, mock_llm):
+        # 基线：top=1 时首位是 采购合同（fuse 稳定序 A 先）
+        base = Q.fuse(Q.find_hits(self.vault, Q.terms_from_question(
+            "违约金比例是多少")), [])
+        self.assertNotEqual(base[0]["doc"], "pi-ccc3333")
+        mock_llm.side_effect = [('{"order": [1, 0]}', 40, 3),
+                                (self._ANS, 100, 50)]
+        rc, lines = Q.query_flow(self.vault, "违约金比例是多少", top=1)
+        self.assertEqual(rc, 0)
+        self.assertEqual(mock_llm.call_count, 2)         # 重排 1 次 + 延展 1 次
+        joined = "\n".join(lines)
+        self.assertIn("重排：ok", joined)
+        body = [l for l in lines if l.startswith("  ") and "[primary" in l]
+        self.assertIn("竞品分析", body[0])               # Top-1 换成了 C
+        # 台账：独立 query_rerank 行 + 主行 tokens 合并
+        rr = [r for r in _read_ledger(self.vault)
+              if r.get("cmd") == "query_rerank"]
+        self.assertTrue(rr)
+        q = [r for r in _read_ledger(self.vault) if r.get("cmd") == "query"]
+        self.assertGreaterEqual(q[-1]["tokens_in"], 100)
+
+    @mock.patch("cenhua_service.refine.call_llm")
+    def test_97_no_rerank_flag_skips(self, mock_llm):
+        mock_llm.return_value = (self._ANS, 10, 5)
+        rc, lines = Q.query_flow(self.vault, "违约金比例是多少", top=1,
+                                 no_rerank=True)
+        self.assertEqual(rc, 0)
+        mock_llm.assert_called_once()                    # 只有延展
+        self.assertNotIn("重排", "\n".join(lines))
+
+    @mock.patch("cenhua_service.refine.call_llm")
+    def test_98_env_switch_off(self, mock_llm):
+        os.environ["CENHUA_RERANK"] = "off"
+        try:
+            mock_llm.return_value = (self._ANS, 10, 5)
+            Q.query_flow(self.vault, "违约金比例是多少", top=1)
+        finally:
+            os.environ.pop("CENHUA_RERANK", None)
+        mock_llm.assert_called_once()
+
+    @mock.patch("cenhua_service.refine.call_llm")
+    def test_99_rerank_failure_keeps_order(self, mock_llm):
+        mock_llm.side_effect = [RuntimeError("gw down"), (self._ANS, 10, 5)]
+        rc, lines = Q.query_flow(self.vault, "违约金比例是多少", top=1)
+        self.assertEqual(rc, 0)                          # 永不拖垮 query
+        self.assertIn("调用失败原序", "\n".join(lines))
+
+
 # ------------------------------------------------------------ 拒答门禁 ----
 class RefusalGateTest(_VaultBase):
     def test_70_refusal_verdict_true(self):

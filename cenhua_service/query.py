@@ -242,17 +242,18 @@ def verify_citations(vault, citations):
 
 
 # ------------------------------------------------------------ CLI 解析 ----
-_VALUE_OPTS = {"--top"}
+_VALUE_OPTS = {"--top", "--session"}
 
 
 def parse_args(rest):
     """解析 `cenhua query` 参数。返回 (question, kw)。
 
-    kw = {"include_derived", "dry", "force", "top"}。
-    skip 带值 flag 的值，收集位置参数为 question。
+    kw = {"include_derived", "dry", "force", "top", "session",
+    "no_rerank"}。skip 带值 flag 的值，收集位置参数为 question。
     """
     question_parts, kw = [], {"include_derived": False, "dry": False,
-                              "force": False, "top": MAX_DOCS}
+                              "force": False, "top": MAX_DOCS,
+                              "session": "", "no_rerank": False}
     i = 0
     while i < len(rest):
         a = rest[i]
@@ -262,6 +263,11 @@ def parse_args(rest):
             kw["dry"] = True
         elif a == "--force":
             kw["force"] = True
+        elif a == "--no-rerank":
+            kw["no_rerank"] = True
+        elif a == "--session" and i + 1 < len(rest):
+            kw["session"] = rest[i + 1]
+            i += 1
         elif a in _VALUE_OPTS and i + 1 < len(rest):
             kw["top"] = _int_opt(rest, i + 1, kw["top"])
             i += 1
@@ -282,17 +288,22 @@ def _int_opt(args, idx, default):
 
 # ------------------------------------------------------------ 主编排 ----
 def query_flow(vault, question, include_derived=False, dry=False, force=False,
-               top=MAX_DOCS):
+               top=MAX_DOCS, session="", no_rerank=False):
     """`cenhua query` 主编排。返回 (rc, lines)。零 print。
 
     四段：命中列表 -> 证据段+hint -> LLM 延展 -> 引文校验 -> 关联推荐。
+    M4c：重排器（fuse 后小模型重排，可关可降级）+ 多轮上下文
+    （`session`=会话 id，先前轮次注入 prompt 且明示非证据）。
     """
     from cenhua_service import refine as R
     from cenhua_service import cost as C
+    from cenhua_service import rerank as RR
+    from cenhua_service import session as SS
 
     if not question:
         return 2, ["usage: cenhua query \"问题\" "
-                   "[--include-derived --dry-run --force --top N]"]
+                   "[--include-derived --dry-run --force --top N] "
+                   "[--session SID] [--no-rerank]"]
 
     terms = terms_from_question(question)
     fh = find_hits(vault, terms, include_derived=include_derived)
@@ -304,8 +315,32 @@ def query_flow(vault, question, include_derived=False, dry=False, force=False,
         lines.append("  提示：换措辞重试，或 `cenhua add` 补充语料")
         return 1, lines
 
+    # ---- 重排器（M4c-15）：候选 > top 且开关开且网关可用才执行 ----
+    rr_note, rr_tokens = None, (0, 0)
+    if not no_rerank and RR.enabled(vault) and len(fused) > top \
+            and L.chat_ready(L.build_env(vault)):
+        prepared = RR.prepare(vault, question, fused, top)
+        if prepared:
+            prompt, pool = prepared
+            est_rr = estimate(vault, prompt, calls=1)
+            ok, msg = cost_gate(vault, est_rr, force=force)
+            if ok:
+                fused, rr_note, toks = RR.apply(prompt, fused, pool)
+                if toks:
+                    rr_tokens = toks
+                    C.ledger_append(vault, {
+                        "cmd": "query_rerank", "doc": question[:200],
+                        "calls": 1, "tokens_in": toks[0],
+                        "tokens_out": toks[1],
+                        "est_cost": est_rr["est_cost"],
+                        "currency": est_rr["currency"],
+                        "priced": est_rr["priced"]})
+            else:
+                rr_note = f"预算拒绝原序（{msg}）"
+
     # ---- 第一段：命中列表 ----
-    lines = [f"= 命中 {len(fused)} 个文档（按置信度降序）："]
+    head = f"= 命中 {len(fused)} 个文档（按置信度降序）"
+    lines = [head + (f"；重排：{rr_note}" if rr_note else "") + "："]
     for a in fused[:top]:
         tag = ""
         if a["tier"] == T.TIER_DERIVED:
@@ -321,19 +356,24 @@ def query_flow(vault, question, include_derived=False, dry=False, force=False,
     for did in cand:
         R.enqueue(vault, did, reason="query")
 
-    # ---- 第二段：证据段 + hint ----
+    # ---- 第二段：证据段 + hint +（多轮）先前轮次 ----
     segs = evidence_for(vault, [d for d in cand
                                 if T.evidence_eligible(vault, d)])
     hint_lines, hint_meta = P.hint_block(vault, cand)
+    prior_lines = SS.history_block(vault, session) if session else []
 
     if dry:
-        full = P.build_prompt(question, hint_lines,
-                              [f"--- [{d[:8]} P?] ---" for d in cand])
+        full = P.build_prompt(
+            question, hint_lines,
+            [f"--- [{d[:8]} P?] ---" for d in cand], prior_lines)
         est = estimate(vault, full, calls=1)
         lines.extend(C.dry_run_cost_lines(vault, est))
         lines.append(f"[hint] {hint_meta['docs']} refined doc(s) ready"
                      + (f", {hint_meta['dropped_imperative']} 祈使句已剔除"
                         if hint_meta["dropped_imperative"] else ""))
+        if prior_lines:
+            lines.append(f"[session] {session}：已注入 {len(prior_lines) - 1} "
+                         f"轮先前对话（tier=context，非证据）")
         lines.append("(dry run — nothing was sent)")
         return 0, lines
 
@@ -350,7 +390,7 @@ def query_flow(vault, question, include_derived=False, dry=False, force=False,
     # ---- 成本闸 ----
     full = P.build_prompt(question, hint_lines,
                           [f"--- [{d[:8]} P{p}] {n} ---\n{t}"
-                           for d, n, p, t in segs])
+                           for d, n, p, t in segs], prior_lines)
     est = estimate(vault, full, calls=1)
     ok, msg = cost_gate(vault, est, force=force)
     if not ok:
@@ -364,7 +404,8 @@ def query_flow(vault, question, include_derived=False, dry=False, force=False,
         return 0, lines
     parsed = P.parse_answer(raw)
     C.ledger_append(vault, {"cmd": "query", "doc": question[:200], "calls": 1,
-                            "tokens_in": tin, "tokens_out": tout,
+                            "tokens_in": tin + rr_tokens[0],
+                            "tokens_out": tout + rr_tokens[1],
                             "est_cost": est["est_cost"],
                             "currency": est["currency"],
                             "priced": est["priced"],
@@ -374,6 +415,10 @@ def query_flow(vault, question, include_derived=False, dry=False, force=False,
                             "hint_dropped": hint_meta["dropped_imperative"]})
     vault.log("query", [f"question={question}", f"calls=1 "
                        f"parse_ok={bool(parsed)}"])
+    if session:
+        saved = bool(parsed) and SS.record(
+            vault, session, question, parsed["answer"], parsed["citations"])
+        lines.extend(SS.tail_lines(vault, session, saved))
 
     # ---- 第三段：内容出处 ----
     if parsed:

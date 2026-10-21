@@ -554,6 +554,66 @@ def _mid(nid):
     return "n" + hashlib.sha1(str(nid).encode("utf-8")).hexdigest()[:10]
 
 
+# -------------------------------------------------- 力导向视图（M4b 任务 6）----
+
+
+def view(vault, entity_kw=None, max_nodes=80):
+    """graph.json -> 前端力导向图 JSON（GET /api/v1/graph 的数据面）。
+
+    口径与 mermaid 一致：mentions 边（doc->entity）默认不入图，
+    否则一挂文档就糊成星形不可读。entity_kw 给定时以该节点为中心
+    展开一跳到邻居（邻居文档的 mentions 边保留，方便看"谁提到它"）；
+    否则按边权（实体）+ 提及文档数（文档）取热度 top-N。
+    返回 {"ts","tier","n_docs","nodes","edges","total_nodes","total_edges",
+    "center","truncated"}，字段全部为前端可直接消费的简单类型。
+    """
+    g = load_graph(vault)
+    nodes, adj = _index(g)
+    rel = [e for e in g["edges"] if e["type"] != TYPE_MENTIONS
+           and e.get("from") and e.get("to")]
+    mentions = [e for e in g["edges"] if e["type"] == TYPE_MENTIONS]
+
+    center = _resolve(g, entity_kw) if entity_kw else None
+    keep = set()
+    if center:
+        keep.add(center)
+        for e in adj.get(center, []):
+            keep |= {e["from"], e["to"]}
+    else:
+        score = {}
+        for e in rel:
+            for side in (e["from"], e["to"]):
+                score[side] = score.get(side, 0.0) + e.get("weight", 0.0)
+        for e in mentions:
+            score[e["from"]] = score.get(e["from"], 0.0) + 0.5
+        keep = {k for k, _ in sorted(score.items(),
+                                     key=lambda kv: (-kv[1], kv[0]))
+                [:max(1, int(max_nodes))]}
+
+    shown = [e for e in rel if e["from"] in keep and e["to"] in keep]
+    if center:
+        shown += [e for e in mentions
+                  if center in (e["from"], e["to"])]
+    used = set()
+    for e in shown:
+        used |= {e["from"], e["to"]}
+    out_nodes = [
+        {"id": nd["id"], "kind": nd["kind"], "name": nd.get("name", nd["id"]),
+         "df": nd.get("df", 0), "hub": bool(nd.get("hub", False)),
+         "tier": nd.get("tier", "")}
+        for nid, nd in sorted(nodes.items()) if nid in used]
+    return {"ts": g.get("ts", ""), "tier": g.get("tier", TIER),
+            "n_docs": g.get("n_docs", 0), "center": center or "",
+            "nodes": out_nodes,
+            "edges": [{"from": e["from"], "to": e["to"], "type": e["type"],
+                       "weight": e.get("weight", 0.0),
+                       "source": e.get("source", "auto"),
+                       "evidence": e.get("evidence", "")}
+                      for e in shown],
+            "total_nodes": len(nodes), "total_edges": len(g["edges"]),
+            "truncated": len(nodes) > len(used), "schema_version": 1}
+
+
 # ---------------------------------------------------------------- CLI ----
 USAGE = (
     "usage: cenhua graph entity <实体> [--limit N]        [OFFLINE]\n"

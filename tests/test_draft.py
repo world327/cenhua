@@ -490,6 +490,39 @@ class AuxTest(Base):
         self.assertEqual(F.aux_flow(self.vault, {"action": ""})["rc"], 2)
 
 
+class AssembleTest(Base):
+    """assemble 渲染口径（E2E 实测两坑回归）。"""
+
+    def _art(self, sections, cites):
+        return "\n".join(F.assemble(self.vault, "口径", 1, sections, cites,
+                                    "llm", [DOC], "r-asm"))
+
+    def test_70_title_with_number_no_double_prefix(self):
+        # LLM 把骨架 "1.《X》" 编号带回时不再叠加 "## %d. " 前缀
+        art = self._art([{"title": "1.《本周进展》", "body": "b1",
+                          "citations": []},
+                         {"title": "无编号标题", "body": "b2",
+                          "citations": []}], [])
+        self.assertIn("## 1.《本周进展》", art)
+        self.assertNotIn("## 1. 1.", art)
+        self.assertIn("## 2. 无编号标题", art)
+
+    def test_71_ok_map_prefix_and_full_id_match(self):
+        # cites 经 resolve_ids 补全为完整 id，小节引文仍是 8 位前缀：
+        # 两边必须都命中 ✓（E2E 实测曾全标 ✗ 而汇总 4/4 通过）
+        long_id = "pi-d1aaaabbbbcccc"
+        sects = [{"title": "T", "body": "b", "citations": [
+            {"doc": long_id[:8], "page": "1", "snippet": SNIP},
+            {"doc": long_id, "page": "1", "snippet": "改写的幻觉文本"}]}]
+        cites = [{"doc": long_id, "page": "1", "snippet": SNIP,
+                  "ok": True, "via": "direct", "note": ""},
+                 {"doc": long_id, "page": "1", "snippet": "改写的幻觉文本",
+                  "ok": False, "via": "none", "note": "x"}]
+        art = self._art(sects, cites)
+        self.assertIn(SNIP + "  · ✓", art)
+        self.assertIn("改写的幻觉文本  · ✗", art)
+
+
 class CliTest(Base):
     def test_50_dispatch_and_usage(self):
         r = self.run_cli(["draft"])

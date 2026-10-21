@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h3>{{ d.topic or d.file }} · V{{ d.version }}
+    <span class="mono">（{{ d.mode or '未知引擎' }} · rid={{ d.rid or '-' }}）</span></h3>
+  <p class="muted">保存 = 原子覆盖原文件 + 引文即刻重验（不自动 bump 版本；
+  历史版本用 <code>cenhua draft "{{ d.topic }}" --restore N</code> 另存）。
+  引文行格式 <code>&gt; 引文 [doc前8位 P页] 原文</code> 请勿改动行首结构。</p>
+  <form id="editform" data-file="{{ d.file }}">
+    <textarea id="body" rows="24" spellcheck="false"
+      style="font-family:ui-monospace,Consolas,monospace;font-size:13px">{{ d.text }}</textarea>
+    <div class="row" style="margin-top:10px">
+      <button type="submit">保存并重验</button>
+      <a class="sec button" href="/drafts">返回列表</a>
+    </div>
+  </form>
+  <pre id="save-result" class="log" hidden></pre>
+</div>
+
+<div class="card">
+  <h4>引文（{{ d.citations|length }} 条 · 同一 verify 口径）</h4>
+  {% if d.citations %}
+  <table id="cites">
+    <tr><th>L</th><th>doc</th><th>P</th><th>snippet</th><th>校验</th><th>穿透</th></tr>
+    {% for c in d.citations %}
+    <tr>
+      <td class="mono">{{ c.line }}</td>
+      <td class="mono">{{ c.doc[:8] }}</td>
+      <td class="mono">{{ c.page }}</td>
+      <td>{{ c.snippet[:60] }}{% if c.snippet|length > 60 %}…{% endif %}</td>
+      <td class="{{ 'ok' if c.ok else 'bad' }}">{{ '✓' if c.ok else '✗' }}
+        <span class="mono">{{ c.via }}{{ (' — ' ~ c.note) if c.note else '' }}</span></td>
+      <td><a href="#" class="excerpt" data-doc="{{ c.doc }}" data-page="{{ c.page }}"
+             data-snippet="{{ c.snippet }}">看原文</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  <pre id="excerpt" class="log" hidden></pre>
+  {% else %}
+  <p class="muted">无引文行（规则兜底草稿或全文无引文）。</p>
+  {% endif %}
+</div>
+
+{% if d.versions|length > 1 %}
+<div class="card">
+  <h4>版本对比（unified diff · 同主题 {{ d.versions|length }} 版）</h4>
+  <div class="row">
+    <select id="va">{% for v in d.versions %}
+      <option value="{{ v.file }}" {{ 'selected' if v.file == d.file }}>V{{ v.version }}（{{ v.date }}）</option>
+      {% endfor %}</select>
+    <span class="muted">→</span>
+    <select id="vb">{% for v in d.versions|reverse %}
+      <option value="{{ v.file }}" {{ 'selected' if v.file == d.file }}>V{{ v.version }}（{{ v.date }}）</option>
+      {% endfor %}</select>
+    <button id="difbtn" type="button">对比</button>
+  </div>
+  <pre id="diff" class="log" hidden></pre>
+</div>
+{% endif %}
+
+<script>
+  window.CENHUA_DRAFT = {file: {{ d.file|tojson }}};
+</script>
+<script>
+(function () {
+  var file = window.CENHUA_DRAFT.file;
+  var esc = function (s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;'); };
+
+  document.getElementById('editform').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var out = document.getElementById('save-result');
+    out.hidden = false;
+    out.textContent = '保存中…';
+    fetch('/api/v1/drafts/' + encodeURIComponent(file), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      credentials: 'same-origin',
+      body: JSON.stringify({text: document.getElementById('body').value})
+    }).then(function (r) { return r.json().then(function (b) { return [r.status, b]; }); })
+      .then(function (res) {
+        var st = res[0], b = res[1];
+        if (b.detail) b = b.detail;            // HTTPException 包壳
+        out.textContent = (b.lines || [JSON.stringify(b)]).join('\n');
+        out.className = 'log ' + (b.rc === 0 ? 'ok' : 'bad');
+      })
+      .catch(function (e) { out.textContent = '保存失败：' + e; });
+  });
+
+  document.querySelectorAll('a.excerpt').forEach(function (a) {
+    a.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      var out = document.getElementById('excerpt');
+      out.hidden = false;
+      out.textContent = '穿透中…';
+      var q = 'doc=' + encodeURIComponent(a.dataset.doc) +
+        '&page=' + encodeURIComponent(a.dataset.page) +
+        '&snippet=' + encodeURIComponent(a.dataset.snippet);
+      fetch('/api/v1/drafts/' + encodeURIComponent(file) + '/excerpt?' + q,
+            {credentials: 'same-origin'})
+        .then(function (r) { return r.json(); })
+        .then(function (b) {
+          out.textContent = (b.ok ? '✓ ' : '✗ ') + b.doc + ' P' + b.page +
+            ' [' + b.via + ']' + (b.note ? ' — ' + b.note : '') + '\n\n' +
+            (b.excerpt || '（无原文预览）');
+          out.className = 'log ' + (b.ok ? 'ok' : 'bad');
+        });
+    });
+  });
+
+  var btn = document.getElementById('difbtn');
+  if (btn) btn.addEventListener('click', function () {
+    var out = document.getElementById('diff');
+    out.hidden = false;
+    out.textContent = '对比中…';
+    fetch('/api/v1/drafts/-/diff?a=' + encodeURIComponent(document.getElementById('va').value) +
+          '&b=' + encodeURIComponent(document.getElementById('vb').value),
+          {credentials: 'same-origin'})
+      .then(function (r) { return r.json(); })
+      .then(function (b) {
+        if (b.detail) b = b.detail;
+        var lines = (b.diff || b.lines || []);
+        out.innerHTML = lines.map(function (l) {
+          if (l.indexOf('+++') === 0 || l.indexOf('---') === 0) return '<b>' + esc(l) + '</b>';
+          if (l.charAt(0) === '+') return '<span class="ok">' + esc(l) + '</span>';
+          if (l.charAt(0) === '-') return '<span class="bad">' + esc(l) + '</span>';
+          return esc(l);
+        }).join('\n');
+      });
+  });
+})();
+</script>
+{% endblock %}

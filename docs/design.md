@@ -102,6 +102,30 @@ prompt 两段式（`cenhua_service/prompt.py` 装配）：
   `refine` 自身的精化 prompt 不在管辖内（其输入本就是 internal-artifact
   的规则层粗提取，产出的 refined 字段才是 hint 原料）。
 
+### 2.8 派生创作与检索增强的边界（v0.6.2 · M4c 起）
+
+M4c 在 hint-not-evidence 框架上补两类能力——派生创作（模板生成/导出）与
+检索增强（多轮/重排），统一边界：
+
+- **模板目录与自定义覆盖**：内置四模板（report/memo/email/weekly）以代码内
+  `BUILTIN` 表为唯一事实源；用户模板落 `<vault>/meta/templates/<id>.md`，
+  同 id **覆盖内置**（加模板只写文件、不改代码）。模板只是"骨架 + 风格
+  约束"，正文仍从 primary 证据集生成，产物落 `works/drafts/` 并带
+  `<!-- template: <id> -->` 标记——tier 纪律与 draft 完全一致（derived-doc）。
+- **导出三格式与消毒口径统一**：`export` 的 md 是字节复制，html 复用
+  `webui.pages._md_to_html`，pdf 在其之上复用引擎 `pi_ingest.html_to_pdf`——
+  消毒逻辑（剥 `<script>`/`on*`）全局只有这一份，Web 页面与导出 HTML 天然
+  同口径，不存在第二个渲染器。源限定 `works/drafts/` 内的草稿，失败删半成品
+  不留残渣。
+- **PRIOR 非证据段设计**：多轮上下文以 `[PRIOR tier=context]` 段注入在 HINT
+  段之前，段头与 prompt 规则双重声明"不是证据、不得引用"——上一轮回答本身
+  是未经核验的派生文本，若可作证据即是会话内的引文洗白。session 读写异常
+  一律退化为单轮，不改 rc。
+- **重排池与独立台账**：小模型只做"池内换序"（粗召回 top×3 候选 → 重排 →
+  取 Top-K），不筛选、不改写证据；候选 ≤ top 直接跳过（零成本路径）。重排
+  调用独立记 `cmd=query_rerank` 台账行、tokens 并入主 query 行，保证"见账 =
+  实烧"（§2.6 全量记账）；失败/预算拒绝一律原序返回，只加一行 note。
+
 ## 3. 范围
 
 ### P0–P2（当前版本 0.1.0，最小可用）

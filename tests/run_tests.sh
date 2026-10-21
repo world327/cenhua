@@ -15,11 +15,17 @@ echo
 echo "== M1b mail intake + watch hardening (5 tests)"
 python3 -W ignore::ResourceWarning tests/test_mail.py -q || rc=1
 echo
-echo "== M1b knowledge weaving (summaries/refine gates/relations/ROI, 33 tests)"
+echo "== M1b knowledge weaving (summaries/refine gates/relations/ROI + thinking-model call_llm, 37 tests)"
 python3 -W ignore::ResourceWarning tests/test_weave.py -q || rc=1
 echo
-echo "== M2b query (4-section/two-part hint/snippet/tier/refusal+injection gate, 46 tests)"
+echo "== M2b query (4-section/two-part hint/snippet/tier/refusal+injection gate + M4c session/rerank, 64 tests)"
 python3 -W ignore::ResourceWarning tests/test_query.py -q || rc=1
+echo
+echo "== M4c template system (catalog/add/gates/rid-idempotency/rules-fallback/CLI, 22 tests)"
+python3 -W ignore::ResourceWarning tests/test_template.py -q || rc=1
+echo
+echo "== M4c export md/html/pdf (sanitize/readback/no-partial-file, 15 tests)"
+python3 -W ignore::ResourceWarning tests/test_export.py -q || rc=1
 echo
 echo "== M3a jobs channel (submit/status/result/stale/wait, 10 tests)"
 python3 -W ignore::ResourceWarning tests/test_jobs.py -q || rc=1
@@ -39,7 +45,7 @@ echo
 echo "== M4a knowledge graph (parse/rebuild/entity-path-cluster/Mermaid/triples gates, 49 tests)"
 python3 -W ignore::ResourceWarning tests/test_graph.py -q || rc=1
 echo
-echo "== M4a topic draft (recall/gates/rid-idempotency/verify/extend-rewrite-diff-restore/backflow, 36 tests)"
+echo "== M4a topic draft (recall/gates/rid-idempotency/verify/extend-rewrite-diff-restore/backflow + assemble 口径, 38 tests)"
 python3 -W ignore::ResourceWarning tests/test_draft.py -q || rc=1
 echo
 echo "== local OCR layer (RapidOCR stubbed, real renderers)"
