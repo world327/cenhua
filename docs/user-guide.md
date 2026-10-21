@@ -362,6 +362,7 @@ vault.yaml `api_token`；**未配置 = 所有页面和 API 一律拒绝**（API 
 | 编织 | `/weave` | 文档列表 + 标签/笔记编辑 + Mermaid 关联图 |
 | 图谱 | `/graph` | 力导向知识图谱（M4 起） |
 | 洞察 | `/insights` | digest 产物浏览 + 页面直接触发周记/月报/季报（M5-3 起） |
+| 源状态 | `/sources` | 多源摄取状态面板（M5-4 起，免鉴权） |
 | 草稿 | `/drafts` | 主题草稿列表/编辑/版本对比/引文穿透（M4 起） |
 
 **API 端点**（前缀 `/api/v1`，响应均带 `schema_version`）：
@@ -381,6 +382,8 @@ vault.yaml `api_token`；**未配置 = 所有页面和 API 一律拒绝**（API 
 | `/drafts` `/drafts/{f}` | GET·PUT | 草稿列表 / 详情 / 保存重验（M4 起） |
 | `/drafts/{f}/export` | GET | 导出下载 `?fmt=md\|html\|pdf`（M5-3 起） |
 | `/vaults` | GET | 库列表 + 当前库（M5-3 多库切换） |
+| `/sources` | GET | 多源状态 + 已注册类型（M5-4，免鉴权） |
+| `/webhook/{path}` | POST | Webhook 接收（M5-4，HMAC-SHA256 验签） |
 
 **多库切换（v0.7.0 · M5-3 起）**：一个 web 进程绑定一个启动库，
 鉴权始终用启动库的 token；数据面（所有 `/api/v1` 端点与页面）可切库——
@@ -529,6 +532,37 @@ cenhua bench --corpus       # 用户库 QA（报告模式，只打印不阻断�
 自 v0.4.0 起门禁加入**注入对抗集**（fixture 注入题，离线零 LLM）：hint 摘要
 中混入的中英祈使/注入句必须被 `sanitize_hint` 整句剔除且事实片段零误伤，
 对抗题至少 1/3 人工撰写（`author:"human"`），任何一题失败即阻断发版。
+
+### 4.4f 多源摄取 `pulls`（v0.7.1 · M5-4 起）
+
+站点级配置 `meta/sources.yaml`（PyYAML，支持嵌套）：
+
+```yaml
+sources:
+  - type: rss
+    name: my-blog
+    url: https://example.com/blog/feed.xml
+    interval_s: 3600
+  - type: webhook
+    name: slack-bot
+    path: slack-bot
+    secret: "HMAC-SHA256 key"
+    format: auto   # text|html|md|auto(JSON 取 text/message 字段)
+```
+
+CLI 同步（cron 定时入口）：
+```bash
+cenhua pulls --list                # 列出配置源 + 上次状态
+cenhua pulls --source my-blog      # 只同步一个源
+cenhua pulls                       # 同步全部（增量去重）
+cenhua pulls --state               # 每源 last_seen/last_error
+```
+
+Webhook 被动触发：`POST /webhook/<path>` + `X-Cenhua-Signature: sha256=<hex>`
+（常数时间比较防时序攻击，fail-closed——无/错签名一律 401）。
+
+增量去重：RSS 条目 hash（guid/link/title）+ `sources_state.json` last_seen；
+Webhook 按事件幂等。复用 `L.sha1` dedupe index 二次校验。
 
 ## 5. 库管理
 

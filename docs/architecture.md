@@ -284,6 +284,9 @@ hint 二段验证成本进 ROI 账：query 台账记 `hint_docs`/`hint_dropped`�
   错误统一 `{"detail": {error, detail, schema_version}}`；未知 job 恒定
   `aborted/stale`（200 而非 404，与 ADR-001 口径一致）。
 - 请求级多库（M5-3）：鉴权域 = 启动 vault（进程管理 token，fail-closed
+- M5-4 webhook 路由：`mount_webhook_routes(app)` 在 app 层直接挂载（独立鉴权
+  HMAC-SHA256，不走 require_token fail-closed）；`GET /sources` 免鉴权（和 /health
+  同口径）返回源列表 + 状态面板数据。
   不变）；数据面端点均支持 `?vault=NAME` 切库，白名单 = `list_vaults()`
   （按 vault.yaml 存在过滤），非法名 400。`GET /vaults` 返回库列表 +
   当前库。`docs` 过滤参数在 core.find 边界归一化（JSON list 与 CLI
