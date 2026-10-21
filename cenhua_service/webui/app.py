@@ -114,6 +114,42 @@ def create_app(vault, rate=None):
     app.include_router(build_router(vault))
     app.include_router(build_pages(vault))
 
+    # ---- M5-4 webhook 路由挂载（独立鉴权：HMAC-SHA256，不走 require_token）
+    try:
+        from cenhua_service.sources.webhook import mount_webhook_routes
+        app.state.webhook_paths = mount_webhook_routes(app)
+    except ImportError:
+        app.state.webhook_paths = []
+
+    # ---- M5-4 /sources 状态端点（只读，免鉴权，和 /health 同口径）
+    @app.get("/sources")
+    def sources_status():
+        from cenhua_service.sources import parse_sources, load_state,             list_source_types
+        try:
+            import yaml
+        except ImportError:
+            return {"sources": [], "registered": list_source_types(),
+                    "yaml_available": False}
+        sources = parse_sources(vault)
+        state = load_state(vault)
+        out = []
+        for s in sources:
+            name = s.get("name") or "?"
+            st = state.get(name, {})
+            out.append({
+                "name": name,
+                "type": s.get("type", "?"),
+                "path": (s.get("path") or s.get("url") or "")[:80],
+                "interval_s": s.get("interval_s"),
+                "last_success": st.get("last_success"),
+                "last_error": st.get("last_error"),
+                "last_seen_count": len(st.get("last_seen") or []),
+            })
+        return {"sources": out, "registered": list_source_types(),
+                "yaml_available": True,
+                "webhook_paths": getattr(app.state, "webhook_paths", []),
+                "schema_version": 1}
+
     # ---- /health 探活端点（M5-1）：容器/看门狗探活用，不经过 token 鉴权 ----
     @app.get("/health")
     def health():

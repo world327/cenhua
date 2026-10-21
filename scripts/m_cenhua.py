@@ -407,6 +407,11 @@ def main():
         name = rest[rest.index("--name") + 1] if "--name" in rest else ""
         return m_vault.restore(pos[0], name=name, yes=flag(rest, "--yes"))
 
+    # ---- M5-4 pulls ----------------------------------------------------------
+    if cmd == "pulls":
+        import m_sources
+        return m_sources.flow(v, pos)
+
     # ---- intake ------------------------------------------------------------
     if cmd == "add":
         import m_ingest
