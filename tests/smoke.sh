@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end smoke test WITHOUT any LLM gateway.
-# Verifies: init -> inbox drop -> offline intake failure handling -> text layer
-# -> find/read/status/doctor, using a fabricated engine store (what PageIndex
-# leaves behind). Exits non-zero on the first broken step.
+# Verifies: init -> inbox drop -> offline intake (M5-4 zero-gateway fallback)
+# -> text layer -> find/read/status/doctor. Exits non-zero on first broken step.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -11,7 +10,7 @@ trap 'rm -rf "$CENHUA_HOME"' EXIT
 ok() { printf '\033[32m✓\033[0m %s\n' "$1"; }
 bad() { printf '\033[31mx\033[0m %s\n' "$1"; exit 1; }
 
-echo "== CENHUA smoke (offline) =="
+echo "== CENHUA smoke (offline, zero-gateway)"
 ./bin/cenhua init demo --title "smoke" --yes >/dev/null || bad "init"
 ok "init demo"
 
@@ -34,11 +33,12 @@ ok "find exact + page citations (en/cjk)"
 ./bin/cenhua find absent-xyz --vault demo >/dev/null 2>&1 && bad "find miss rc" || true
 ok "not-found exit code"
 
+# M5-4 离线降级：无网关时 intake 成功（不是失败），文件进 .processed
 echo "drop" > "$V/inbox/loose.txt"
 ./bin/cenhua add --inbox --vault demo > /tmp/cenhua-smoke.log 2>&1 || true
-grep -q "failed" /tmp/cenhua-smoke.log || bad "intake must report failure without gateway"
-[ -d "$V/inbox/.failed" ] && [ -n "$(ls -A "$V/inbox/.failed")" ] || bad "failed file kept"
-ok "intake failure is loud, file kept for retry"
+grep -q "offline" /tmp/cenhua-smoke.log || bad "intake must report offline fallback"
+[ -d "$V/inbox/.processed" ] && [ -n "$(ls -A "$V/inbox/.processed")" ] || bad "processed file kept"
+ok "offline intake succeeds, file moved to .processed"
 
 ./bin/cenhua ask --all "q?" --dry-run --vault demo | grep -q "nothing was sent" || bad "dry-run"
 ok "ask --dry-run costs nothing"

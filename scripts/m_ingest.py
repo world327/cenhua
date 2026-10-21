@@ -13,6 +13,12 @@ inbox/.failed/ with the reason in logs/ingest-*.log.
 Dedupe: CENHUA keeps meta/dedupe.json (sha1 -> doc_id) on top of the engine's
 own sha1 dedupe, so re-dropping the same file is a no-op (no LLM call, no
 double billing).
+
+零网关降级（M5-4）：pi_ingest.py 硬卡 PI_BASE/PI_KEY sys.exit()，
+pi_flatten.py 完全离线无 LLM 依赖。缺网关时走 _offline_ingest
+（手动造 pages.json/manifest/dedupe + 跑 flatten）—— find 立即可用，
+LLM 功能（query/ask/digest/draft）继续 fail-closed。这不是改引擎，是
+service 层 fallback（引擎字节不可改，AGENTS.md 铁律）。
 """
 
 import os
@@ -90,6 +96,133 @@ def sync_dedupe(vault):
     return d
 
 
+# ---------------------------------------------------------------- 零网关降级 ---
+def _offline_ingest(vault, path, quiet=False):
+    """纯离线摄取（无网关 fallback，零 LLM）。
+
+    pi_flatten.py 完全离线无网关依赖，但它需要 pages.json + manifest.json
+    这些都是 pi_ingest.py（LLM 树索引）生成的——引擎字节不可改，所以在
+    service 层手动造最小可用结构：pages.json（按 === PAGE N === 标记分页）
+    + manifest.json + ingest_manifest.json + dedupe 索引。之后跑 flatten
+    生成文本层——find 就能工作。LLM 功能（query/ask/digest/draft）继续
+    fail-closed（它们本身就需要网关）。
+    """
+    import json, shutil
+    path = os.path.abspath(path)
+    name = os.path.basename(path)
+    digest = L.sha1(path)
+
+    # 1) 造 doc_id（与引擎格式一致，offline_<sha1[:12]>）
+    doc_id = "offline_" + digest[:12]
+
+    # 2) 归档原件到 sources/（与引擎同位置）
+    srcdir = os.path.join(vault.store, "sources")
+    os.makedirs(srcdir, exist_ok=True)
+    stored = os.path.join(srcdir, name)
+    if os.path.exists(stored) and L.sha1(stored) != digest:
+        stem, suf = os.path.splitext(name)
+        stored = os.path.join(srcdir, f"{stem}_{digest[:8]}{suf}")
+    try:
+        if not os.path.exists(stored):
+            shutil.copy2(path, stored)
+    except OSError:
+        stored = path
+
+    # 3) 提取文本（conv_* 或直接读）
+    try:
+        ext = os.path.splitext(path)[1].lower()
+        if ext in (".md", ".markdown", ".txt", ".csv", ".html", ".htm"):
+            text = open(path, encoding="utf-8", errors="replace").read()
+        elif ext in (".docx", ".pptx"):
+            import mammoth as _mm
+            with open(path, "rb") as fh:
+                text = _mm.extract_raw_text(fh)
+        else:
+            text = ""
+    except Exception as exc:
+        vault.log("ingest", ["offline 文本提取失败 %s: %s" %
+                              (name, type(exc).__name__)])
+        return "failed"
+
+    if not text.strip():
+        vault.log("ingest", ["offline 空文本 %s (图片/扫描？)" % name])
+        return "failed"
+
+    # 4) 按 === PAGE N === 标记分页（无标记则整页；与引擎 pages.json 格式一致）
+    pages_dir = os.path.join(vault.store, "docs", doc_id)
+    os.makedirs(pages_dir, exist_ok=True)
+    pages = []
+    cur_page, cur_text = 1, []
+    for line in text.splitlines():
+        m = re.match(r"^=== (?:PAGE (\d+)|第(\d+)页) ===$", line)
+        if m and cur_text:
+            pages.append({"page": cur_page,
+                          "markdown": "\n".join(cur_text)})
+            cur_page = int(m.group(1) or m.group(2))
+            cur_text = [line]
+        elif m:
+            cur_page = int(m.group(1) or m.group(2))
+            cur_text = [line]
+        else:
+            cur_text.append(line)
+    if cur_text:
+        pages.append({"page": cur_page, "markdown": "\n".join(cur_text)})
+    if not pages:
+        pages = [{"page": 1, "markdown": text}]
+
+    with open(os.path.join(pages_dir, "pages.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump({"pages": pages}, fh, ensure_ascii=False)
+    with open(os.path.join(pages_dir, "doc.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump({"name": name, "doc_id": doc_id}, fh, ensure_ascii=False)
+
+    # 5) 更新 manifest + ingest_manifest
+    man = L.read_json(os.path.join(vault.store, "manifest.json"), {}) or {}
+    man.setdefault("docs", {})[doc_id] = {"name": name, "stored_as": stored,
+                                          "source": path}
+    with open(os.path.join(vault.store, "manifest.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump(man, fh, ensure_ascii=False, indent=1)
+
+    led = L.read_json(os.path.join(vault.store, "ingest_manifest.json"), {}) or {}
+    led[doc_id] = {"doc_id": doc_id, "name": name, "source": path,
+                   "stored_as": stored, "sha1": digest,
+                   "ts": time.strftime("%F %T")}
+    with open(os.path.join(vault.store, "ingest_manifest.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump(led, fh, ensure_ascii=False, indent=1)
+
+    # 6) dedupe 索引
+    d = dedupe_index(vault)
+    d[digest] = {"doc_id": doc_id, "name": name,
+                 "ts": time.strftime("%F %T")}
+    save_dedupe(vault, d)
+
+    # 7) 跑 flatten（零网关依赖，生成 engine/text/<doc_id>.txt）
+    rc, out = L.run_engine("pi_flatten.py", [], vault, capture=True)
+    if rc != 0:
+        vault.log("ingest",
+                  ["offline flatten rc=%d: %s" % (rc, out.strip()[:200])])
+
+    # 8) stage inbox + tier 标记
+    in_inbox = os.path.dirname(path) == os.path.abspath(vault.inbox)
+    if in_inbox:
+        L.move_into(path, vault.processed)
+    try:
+        from cenhua_service import tier as TG
+        TG.record_tier(vault, doc_id)
+    except Exception:
+        pass
+
+    if not quiet:
+        L.say(f"+ {name} -> offline doc_id {doc_id}  "
+              f"(zero-gateway fallback)")
+    vault.log("ingest", ["offline added %s -> %s" % (name, doc_id)])
+    return "added"
+
+
+# ---------------------------------------------------------------- ingest_one ---
 def ingest_one(vault, path, quiet=False):
     """Returns 'added' | 'dupe' | 'failed'. Never raises.
 
@@ -99,6 +232,14 @@ def ingest_one(vault, path, quiet=False):
     path = os.path.abspath(path)
     name = os.path.basename(path)
     in_inbox = os.path.dirname(path) == os.path.abspath(vault.inbox)
+
+    # 无网关 → 离线降级（find 可用，LLM 功能继续 fail-closed）
+    if not L.chat_ready():
+        if os.path.exists(path) and L.is_supported(path):
+            if not quiet:
+                L.say(f"~ no gateway — offline mode: {name}")
+            return _offline_ingest(vault, path, quiet=quiet)
+        return "failed"
 
     def stage(src, dstdir, suffix=""):
         return L.move_into(src, dstdir, suffix) if in_inbox else src
