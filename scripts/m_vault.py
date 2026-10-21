@@ -309,3 +309,73 @@ def sources(v, kw=""):
     """Where did this content come from? 三层分组渲染在 service（tier.sources_lines）。"""
     for line in TG.sources_lines(v, kw):
         L.say(line)
+
+
+# ------------------------------------------------------------ backup/restore --
+def backup(v, dest="", yes=False):
+    """打包 vault 到 tar.gz（M5-1）。默认 <HOME>/backups/<vault>-<date>.tar.gz。
+
+    排除 inbox/.processed 与 inbox/.failed（可重建），保留 engine/works/meta/logs。
+    返回产物路径；失败抛 OSError。
+    """
+    import tarfile
+    backups_dir = os.path.join(L.HOME, "backups")
+    os.makedirs(backups_dir, exist_ok=True)
+    dest = dest or os.path.join(
+        backups_dir, f"{v.name}-{time.strftime('%Y%m%d-%H%M%S')}.tar.gz")
+    dest = os.path.abspath(os.path.expanduser(dest))
+    if os.path.exists(dest) and not yes:
+        L.die(f"backup target exists: {dest} (use --yes to overwrite)", code=1)
+    exclude = {os.path.join(v.inbox, ".processed"),
+               os.path.join(v.inbox, ".failed")}
+    with tarfile.open(dest, "w:gz") as tar:
+        for root, dirs, files in os.walk(v.root):
+            # 跳过可重建目录
+            dirs[:] = [d for d in dirs
+                       if os.path.join(root, d) not in exclude]
+            for fn in files:
+                full = os.path.join(root, fn)
+                if full in exclude:
+                    continue
+                arc = os.path.relpath(full, v.root)
+                tar.add(full, arcname=os.path.join(v.name, arc))
+    L.say(f"+ backup -> {dest}")
+    return dest
+
+
+def restore(dest, name="", yes=False):
+    """从 tar.gz 恢复 vault（M5-1）。默认恢复到原 vault 名；--name 可改名。
+
+    目标 vault 已存在且非空时需 --yes 确认（不覆盖已有文档）。
+    """
+    import tarfile
+    dest = os.path.abspath(os.path.expanduser(dest))
+    if not os.path.isfile(dest):
+        L.die(f"backup not found: {dest}", code=1)
+    # 探测备份内的 vault 名（tar 顶层目录）
+    with tarfile.open(dest, "r:gz") as tar:
+        members = tar.getmembers()
+    top = None
+    for m in members:
+        parts = m.name.split("/")
+        if len(parts) >= 2:
+            top = parts[0]
+            break
+    if not top:
+        L.die(f"backup has no vault content: {dest}", code=1)
+    name = name or top
+    v = L.Vault(name, must_exist=False)
+    if os.path.isdir(v.root) and os.listdir(v.root) and not yes:
+        L.die(f"target vault '{name}' not empty at {v.root} "
+              f"(use --yes to overwrite)", code=1)
+    os.makedirs(v.root, exist_ok=True)
+    with tarfile.open(dest, "r:gz") as tar:
+        for m in tar.getmembers():
+            # 去掉顶层 vault 名，落到目标 vault 根
+            parts = m.name.split("/", 1)
+            if len(parts) < 2:
+                continue
+            m.name = parts[1]
+            tar.extract(m, v.root)
+    L.say(f"+ restored '{name}' from {dest}")
+    return v.root

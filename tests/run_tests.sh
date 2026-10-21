@@ -9,6 +9,9 @@ echo
 echo "== M1a service layer (cost/verify/bench, 19 tests)"
 python3 -W ignore::ResourceWarning tests/test_service.py -q || rc=1
 echo
+echo "== M5-1 ops hardening (log redact/rotate, backup/restore, /health, 9 tests)"
+python3 -W ignore::ResourceWarning tests/test_ops.py -q || rc=1
+echo
 echo "== M2a web ingestion (robots/rate-limit/render/artifacts, 24 tests)"
 python3 -W ignore::ResourceWarning tests/test_web.py -q || rc=1
 echo
@@ -30,7 +33,7 @@ echo
 echo "== M3a jobs channel (submit/status/result/stale/wait, 10 tests)"
 python3 -W ignore::ResourceWarning tests/test_jobs.py -q || rc=1
 echo
-echo "== M3a core service (ingest/find/query/related/ask/stats, 14 tests)"
+echo "== M3a core service (ingest/find/query/related/ask/stats + find MP, 16 tests)"
 python3 -W ignore::ResourceWarning tests/test_core.py -q || rc=1
 echo
 echo "== M3a long-job channel (channel_job/run_cli/confirm gates, 11 tests)"

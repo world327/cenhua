@@ -806,6 +806,198 @@ class TestConfig(_WebBase):
         self.assertIsInstance(res.lines, list)
 
 
+# --------------------------------------- M5-3：多库 / 导出 / 交互补齐 --
+try:
+    import fitz as _fitz  # noqa: F401
+    _HAS_PYMUPDF = True
+except Exception:
+    try:
+        import pymupdf as _pymupdf  # noqa: F401
+        _HAS_PYMUPDF = True
+    except Exception:
+        _HAS_PYMUPDF = False
+
+
+class TestVaultSwitch(_WebBase):
+    """M5-3 多库：/vaults 发现面 + ?vault= 数据面切换 + 页面 cookie 切换。"""
+
+    def setUp(self):
+        super().setUp()
+        self.vault2 = _init_vault("webui-second-" + self.id().split(".")[-1])
+        _seed_doc(self.vault2, "pi-v2", "v2-doc.txt", ["第二库 语料"])
+
+    def test_01_vaults_requires_auth(self):
+        r = self.client.get("/api/v1/vaults")
+        self.assertEqual(r.status_code, 401)
+
+    def test_02_vaults_list(self):
+        r = self.client.get("/api/v1/vaults", headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn(self.vault.name, body["vaults"])
+        self.assertIn(self.vault2.name, body["vaults"])
+        self.assertEqual(body["current"], self.vault.name)
+
+    def test_03_query_param_switch_documents(self):
+        r = self.client.get("/api/v1/documents",
+                            params={"vault": self.vault2.name},
+                            headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        docs = r.json()["documents"]
+        self.assertEqual([d["doc_id"] for d in docs], ["pi-v2"])
+
+    def test_04_stats_follows_vault(self):
+        r = self.client.get("/api/v1/stats",
+                            params={"vault": self.vault2.name},
+                            headers=self.auth)
+        self.assertEqual(r.json()["name"], self.vault2.name)
+
+    def test_05_unknown_vault_400(self):
+        r = self.client.get("/api/v1/stats", params={"vault": "nope"},
+                            headers=self.auth)
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["detail"]["error"], "unknown vault")
+
+    def test_06_page_cookie_switch(self):
+        self.login()
+        r = self.client.post("/vault/switch",
+                             data={"vault": self.vault2.name,
+                                   "next": "/ingest"})
+        self.assertEqual(r.status_code, 303)
+        self.assertIn("cenhua_vault=", r.headers.get("set-cookie", ""))
+        r2 = self.client.get("/ingest")          # cookie 自动带上
+        self.assertEqual(r2.status_code, 200)
+        self.assertIn(self.vault2.name, r2.text)  # 下拉选中当前库
+
+    def test_07_switch_bad_vault_no_cookie(self):
+        self.login()
+        r = self.client.post("/vault/switch",
+                             data={"vault": "nope", "next": "/ingest"})
+        self.assertEqual(r.status_code, 303)
+        self.assertNotIn("cenhua_vault=", r.headers.get("set-cookie", ""))
+
+    def test_08_page_fallback_unknown_cookie(self):
+        self.login()
+        self.client.cookies.set("cenhua_vault", "ghost-vault")
+        r = self.client.get("/ingest")           # 非法 cookie 安全回落启动库
+        self.assertEqual(r.status_code, 200)
+
+
+class TestDraftExport(_WebBase):
+    """M5-3 导出下载：/drafts/{fname}/export?fmt=（复用 exporter）。"""
+
+    def setUp(self):
+        super().setUp()
+        _seed_doc(self.vault, "pi-exp1", "exp-src.txt",
+                  ["导出 测试 语料 Raft"])
+        self.dfile = "导出_V1_2026-01-01.md"
+        self.dtext = ("<!-- draft: topic=导出 rid=r1 -->\n"
+                      "<!-- derived_from: pi-exp1 -->\n"
+                      "<!-- mode: new -->\n"
+                      "# 导出\n\n## 1. 概述\n\n正文内容。\n\n"
+                      "> 引文 [pi-exp1 P1] 导出 测试 语料 Raft · ✓\n")
+        DR._atomic_write(os.path.join(DR.drafts_dir(self.vault),
+                                      self.dfile), self.dtext)
+
+    def test_01_export_md(self):
+        r = self.client.get("/api/v1/drafts/" + quote(self.dfile) + "/export",
+                            params={"fmt": "md"}, headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.headers["content-type"].startswith("text/markdown"))
+        self.assertIn("attachment", r.headers.get("content-disposition", ""))
+        self.assertEqual(r.content.decode("utf-8"), self.dtext)  # 读回比对
+        # 产物同径落 works/exports/（与 CLI export 一致）
+        self.assertTrue(os.path.isfile(os.path.join(
+            self.vault.works, "exports",
+            os.path.splitext(self.dfile)[0] + ".md")))
+
+    def test_02_export_html(self):
+        r = self.client.get("/api/v1/drafts/" + quote(self.dfile) + "/export",
+                            params={"fmt": "html"}, headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.headers["content-type"].startswith("text/html"))
+        self.assertIn("<html", r.content.decode("utf-8"))
+
+    @unittest.skipUnless(_HAS_PYMUPDF, "pymupdf not installed")
+    def test_03_export_pdf(self):
+        r = self.client.get("/api/v1/drafts/" + quote(self.dfile) + "/export",
+                            params={"fmt": "pdf"}, headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.headers["content-type"]
+                        .startswith("application/pdf"))
+        self.assertEqual(r.content[:4], b"%PDF")
+
+    def test_04_bad_fmt_422(self):
+        r = self.client.get("/api/v1/drafts/" + quote(self.dfile) + "/export",
+                            params={"fmt": "exe"}, headers=self.auth)
+        self.assertEqual(r.status_code, 422)
+
+    def test_05_missing_draft_404(self):
+        r = self.client.get("/api/v1/drafts/nope_V1_2026-01-01.md/export",
+                            params={"fmt": "md"}, headers=self.auth)
+        self.assertEqual(r.status_code, 404)
+
+    def test_06_edit_page_has_buttons(self):
+        self.login()
+        r = self.client.get("/drafts/" + quote(self.dfile))
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("export?fmt=md", r.text)
+
+
+class TestSearchInsightsInterop(_WebBase):
+    """M5-3 检索/洞察页交互补齐：find 高级参数 + digest 生成任务接线。"""
+
+    def setUp(self):
+        super().setUp()
+        _seed_doc(self.vault, "pi-inter", "inter-doc.txt",
+                  ["交互 测试 语料 Raft", "第二页 分散 语料"])
+
+    def test_01_find_regex_and_ic(self):
+        self.login()
+        r = self.client.get("/search", params={
+            "q": "R.ft", "mode": "find", "regex": "on"})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("inter-doc", r.text)               # 正则命中
+        r2 = self.client.get("/search", params={
+            "q": "RAFT", "mode": "find"})                # 默认忽略大小写
+        self.assertIn("inter-doc", r2.text)
+        r3 = self.client.get("/search", params={
+            "q": "RAFT", "mode": "find", "ic": ""})      # 区分大小写
+        self.assertIn("没有命中", r3.text)
+
+    def test_02_find_docs_selector_param(self):
+        self.login()
+        r = self.client.get("/search", params={
+            "q": "语料", "mode": "find", "docs": "pi-inter"})
+        self.assertEqual(r.status_code, 200)
+
+    def test_03_query_dry_submit(self):
+        self.login()
+        r = self.client.get("/search", params={
+            "q": "语料", "mode": "query", "dry": "on", "derived": "on"})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("data-job=", r.text)
+
+    def test_04_ask_all_docs_limit(self):
+        self.login()
+        r = self.client.get("/search", params={
+            "q": "语料", "mode": "ask", "alldocs": "on", "limit": "5"})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("data-job=", r.text)
+
+    def test_05_insights_generate_dry(self):
+        self.login()
+        r = self.client.post("/insights/generate",
+                             data={"kind": "weekly", "dry_run": "on"})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("data-job=", r.text)
+
+    def test_06_insights_generate_bad_kind_422(self):
+        self.login()
+        r = self.client.post("/insights/generate", data={"kind": "xx"})
+        self.assertEqual(r.status_code, 422)
+
+
 if __name__ == "__main__":
     suite = unittest.TestLoader().loadTestsFromModule(
         sys.modules[__name__])

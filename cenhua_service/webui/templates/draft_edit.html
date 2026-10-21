@@ -12,6 +12,10 @@
     <div class="row" style="margin-top:10px">
       <button type="submit">保存并重验</button>
       <a class="sec button" href="/drafts">返回列表</a>
+      <span class="muted" style="margin-left:8px">导出：</span>
+      <a class="sec button" href="/api/v1/drafts/{{ d.file|urlencode }}/export?fmt=md">MD</a>
+      <a class="sec button" href="/api/v1/drafts/{{ d.file|urlencode }}/export?fmt=html">HTML</a>
+      <a class="sec button" href="/api/v1/drafts/{{ d.file|urlencode }}/export?fmt=pdf">PDF</a>
     </div>
   </form>
   <pre id="save-result" class="log" hidden></pre>

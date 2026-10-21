@@ -22,6 +22,15 @@ HOST_ENV, PORT_ENV = "CENHUA_WEB_HOST", "CENHUA_WEB_PORT"
 DEFAULT_HOST, DEFAULT_PORT = "127.0.0.1", 8765
 
 
+def _version():
+    """CENHUA 版本号（m_lib.VERSION，延迟导入避免循环依赖）。"""
+    try:
+        import m_lib as L
+        return L.VERSION
+    except Exception:
+        return "unknown"
+
+
 def web_setting(vault, key, env=None, default=""):
     """env > vault.yaml > default（与 Vault.setting 同序）。"""
     if env and os.environ.get(env):
@@ -104,6 +113,24 @@ def create_app(vault, rate=None):
 
     app.include_router(build_router(vault))
     app.include_router(build_pages(vault))
+
+    # ---- /health 探活端点（M5-1）：容器/看门狗探活用，不经过 token 鉴权 ----
+    @app.get("/health")
+    def health():
+        import shutil as _sh
+        from cenhua_service import core as C
+        st = C.stats(vault)
+        disk = _sh.disk_usage(vault.root) if os.path.isdir(vault.root) else None
+        return {
+            "status": "ok",
+            "version": _version(),
+            "vault": vault.name,
+            "docs": st.docs,
+            "gateway_ready": st.gateway_ready,
+            "disk_free_bytes": disk.free if disk else None,
+            "ts": time.strftime("%F %T"),
+        }
+
     return app
 
 

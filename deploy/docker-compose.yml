@@ -1,0 +1,36 @@
+# CENHUA 容器化部署（M5-1）
+# 用法：docker compose -f deploy/docker-compose.yml up -d
+# 环境变量（凭证不落盘，运行时注入）：
+#   CENHUA_API_TOKEN   Web/API 鉴权 token（必填，fail-closed）
+#   PI_BASE/PI_KEY/PI_MODEL   LLM 网关（可选，离线命令不受影响）
+services:
+  cenhua:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: cenhua:0.7.0
+    container_name: cenhua
+    restart: always
+    ports:
+      - "8765:8765"
+    environment:
+      CENHUA_HOME: /data/cenhua
+      CENHUA_API_TOKEN: ${CENHUA_API_TOKEN:?set CENHUA_API_TOKEN}
+      CENHUA_WEB_HOST: 0.0.0.0
+      CENHUA_WEB_PORT: "8765"
+      # LLM 网关（可选）
+      PI_BASE: ${PI_BASE:-}
+      PI_KEY: ${PI_KEY:-}
+      PI_MODEL: ${PI_MODEL:-openai/gpt-4o-mini}
+      PI_DISABLE_THINKING: ${PI_DISABLE_THINKING:-}
+    volumes:
+      - cenhua-data:/data/cenhua
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  cenhua-data:

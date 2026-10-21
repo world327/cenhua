@@ -125,12 +125,78 @@ def ingest(vault, path) -> IngestResult:
 
 
 # ------------------------------------------------------------ find ----
+# 文本层扫描（M5-2 性能优化）：单文件扫描逻辑提取为顶层函数 _scan_file，
+# 可被 multiprocessing.Pool 跨进程 pickle 调用。文档数超过阈值时用进程池
+# 并行扫描（绕过 GIL——find 是纯 Python 文本扫描，多线程受 GIL 限制，
+# 并发反而因锁竞争导致延迟暴涨，实测 2000 文档并发 4 时 p50 从 71ms 飙到
+# 1477ms）。小库保持单进程（避免进程启动开销）。
+FIND_MP_THRESHOLD_ENV = "CENHUA_FIND_MP_THRESHOLD"
+FIND_MP_THRESHOLD_DEFAULT = 200
+# 模块级复用进程池（M5-2）：避免每次 find 新建进程池的启动开销。
+# multiprocessing.Pool.starmap 内部有锁，线程安全，可被 Web 多线程并发调用。
+_FIND_POOL = None
+_FIND_POOL_LOCK = None
+
+
+def _get_find_pool():
+    global _FIND_POOL, _FIND_POOL_LOCK
+    if _FIND_POOL_LOCK is None:
+        import threading
+        _FIND_POOL_LOCK = threading.Lock()
+    if _FIND_POOL is None:
+        import multiprocessing
+        with _FIND_POOL_LOCK:
+            if _FIND_POOL is None:
+                _FIND_POOL = multiprocessing.Pool()
+    return _FIND_POOL
+
+
+def _scan_file(textdir, fn, pat, docs, max_per_doc):
+    """扫描单个文本层文件，返回该文件的 [FindHit]（供进程池调用）。"""
+    doc_id = fn[:-4]
+    page = "?"
+    n_doc = 0
+    hits = []
+    try:
+        fh = open(os.path.join(textdir, fn), encoding="utf-8",
+                  errors="ignore")
+    except OSError:
+        return hits
+    with fh:
+        for l in fh:
+            m = L.PAGE_RE.match(l.strip())
+            if m:
+                page = m.group(1) or m.group(2)
+                continue
+            mm = pat.search(l)
+            if mm:
+                if n_doc >= max_per_doc:
+                    break
+                n_doc += 1
+                hits.append(FindHit(
+                    doc=doc_id,
+                    name=docs.get(doc_id, {}).get("name", doc_id),
+                    page=page, line=l.strip()[:200],
+                    term=mm.group(0)[:80]))
+    return hits
+
+
+def _find_mp_threshold():
+    try:
+        return int(os.environ.get(FIND_MP_THRESHOLD_ENV,
+                                  FIND_MP_THRESHOLD_DEFAULT))
+    except ValueError:
+        return FIND_MP_THRESHOLD_DEFAULT
+
+
 def find(vault, terms, docs_selector=None, max_per_doc=MAX_HITS_PER_DOC,
          regex=False, ignore_case=False) -> List[FindHit]:
     """文本层精确/正则扫描 -> [FindHit]（全 tier；存在性问题零 token）。
 
     terms 为空 -> []（CLI 负责 usage 提示，service 不 die）。
     文本层缺失的文档跳过（引擎层 flatten 由 CLI find 负责触发）。
+    文档数 > CENHUA_FIND_MP_THRESHOLD（默认 200）时用进程池并行扫描，
+    绕过 GIL 提升并发吞吐（M5-2）。
     """
     if not terms:
         return []
@@ -146,44 +212,42 @@ def find(vault, terms, docs_selector=None, max_per_doc=MAX_HITS_PER_DOC,
 
     only = None
     if docs_selector:
+        if isinstance(docs_selector, (list, tuple)):
+            docs_selector = ",".join(str(s) for s in docs_selector)
         picked = L.resolve_docs(vault, docs_selector)
         if not picked:
             return []
         only = {d for d, _ in picked}
 
     docs = L.store_docs(vault)
-    hits: List[FindHit] = []
     if not os.path.isdir(vault.textdir):
-        return hits
-    for fn in sorted(os.listdir(vault.textdir)):
-        if not fn.endswith(".txt"):
-            continue
-        doc_id = fn[:-4]
-        if only and doc_id not in only:
-            continue
-        page = "?"
-        n_doc = 0
+        return []
+    files = [fn for fn in sorted(os.listdir(vault.textdir))
+             if fn.endswith(".txt")]
+    if only:
+        files = [fn for fn in files if fn[:-4] in only]
+    if not files:
+        return []
+
+    # 大库：复用进程池并行扫描（绕过 GIL）；小库：单进程（避免进程开销）
+    if len(files) >= _find_mp_threshold():
         try:
-            fh = open(os.path.join(vault.textdir, fn),
-                      encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        with fh:
-            for l in fh:
-                m = L.PAGE_RE.match(l.strip())
-                if m:
-                    page = m.group(1) or m.group(2)
-                    continue
-                mm = pat.search(l)
-                if mm:
-                    if n_doc >= max_per_doc:
-                        break
-                    n_doc += 1
-                    hits.append(FindHit(
-                        doc=doc_id,
-                        name=docs.get(doc_id, {}).get("name", doc_id),
-                        page=page, line=l.strip()[:200],
-                        term=mm.group(0)[:80]))
+            pool = _get_find_pool()
+            results = pool.starmap(
+                _scan_file,
+                [(vault.textdir, fn, pat, docs, max_per_doc)
+                 for fn in files])
+            hits: List[FindHit] = []
+            for r in results:
+                hits.extend(r)
+            return hits
+        except Exception:
+            # 进程池失败（如受限环境）降级单进程，不吞掉检索能力
+            pass
+
+    hits: List[FindHit] = []
+    for fn in files:
+        hits.extend(_scan_file(vault.textdir, fn, pat, docs, max_per_doc))
     return hits
 
 

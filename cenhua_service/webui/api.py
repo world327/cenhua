@@ -69,12 +69,26 @@ def build_router(vault):
 
     guard = [Depends(require_token), Depends(require_rate)]
 
+    # ---- 请求级 vault 解析（M5-3 多库）：?vault= 白名单切换 -------------
+    # 鉴权域 = 启动 vault（进程管理 token，fail-closed 语义不变）；
+    # 数据面按 ?vault= 切到白名单（list_vaults）内的库，非法名 400。
+    def _rv(request: Request):
+        name = (request.query_params.get("vault") or "").strip()
+        if not name or name == vault.name:
+            return vault
+        import m_lib as L
+        if name not in L.list_vaults():
+            raise HTTPException(status_code=400,
+                                detail=err(400, "unknown vault", name))
+        return L.Vault(name)
+
     # ---------------------------------------------------------- ingest --
     @router.post("/ingest", dependencies=guard)
-    def api_ingest(file: UploadFile = File(...)):
+    def api_ingest(request: Request, file: UploadFile = File(...)):
         """multipart 落 inbox（唯一用户可见入口）再走标准摄取。"""
         safe = os.path.basename(file.filename or "upload.bin")
-        dest = os.path.join(vault.inbox, safe)
+        rv = _rv(request)
+        dest = os.path.join(rv.inbox, safe)
         if os.path.exists(dest):        # inbox 同名会覆盖原件，加时间戳避让
             root, ext = os.path.splitext(safe)
             dest = os.path.join(vault.inbox,
@@ -84,7 +98,7 @@ def build_router(vault):
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())       # agent/引擎读前文件可见性（flush+fsync）
-        res = core.ingest(vault, dest)
+        res = core.ingest(rv, dest)
         body = to_json(res)
         if res.status == "failed":
             raise HTTPException(status_code=422,
@@ -94,23 +108,33 @@ def build_router(vault):
 
     # ------------------------------------------------------- documents --
     @router.get("/documents", dependencies=guard)
-    def api_documents():
+    def api_documents(request: Request):
         import m_lib as L
         from cenhua_service import tier as T
-        docs = L.store_docs(vault)
-        have, _missing, _empty = L.text_status(vault)
+        rv = _rv(request)
+        docs = L.store_docs(rv)
+        have, _missing, _empty = L.text_status(rv)
         out = []
         for doc_id, d in sorted(docs.items(),
                                 key=lambda kv: kv[1].get("name", "")):
             out.append({"doc_id": doc_id, "name": d.get("name", ""),
                         "stored_as": d.get("stored_as", ""),
                         "text_layer": doc_id in have,
-                        "tier": T.record_tier(vault, doc_id)})
+                        "tier": T.record_tier(rv, doc_id)})
         return {"documents": out, "total": len(out), "schema_version": 1}
 
     @router.get("/stats", dependencies=guard)
-    def api_stats():
-        return to_json(core.stats(vault))
+    def api_stats(request: Request):
+        return to_json(core.stats(_rv(request)))
+
+    # -------------------------------------- vaults（M5-3 多库切换） --
+    @router.get("/vaults", dependencies=guard)
+    def api_vaults():
+        """库列表（多库切换发现面；数据面端点均可 ?vault= 切换）。"""
+        import m_lib as L
+        names = L.list_vaults()
+        return {"vaults": names, "current": vault.name,
+                "schema_version": 1}
 
     # ----------------------------------------------------------- find --
     @router.post("/find", dependencies=guard)
@@ -122,7 +146,7 @@ def build_router(vault):
         if not terms:
             raise HTTPException(status_code=422,
                                 detail=err(422, "terms required"))
-        hits = core.find(vault, terms,
+        hits = core.find(_rv(request), terms,
                          docs_selector=body.get("docs"),
                          regex=bool(body.get("regex")),
                          ignore_case=bool(body.get("ignore_case", True)))
@@ -144,7 +168,7 @@ def build_router(vault):
         if not q:
             raise HTTPException(status_code=422,
                                 detail=err(422, "question required"))
-        spec = core.channel_job("query", core.query, vault, q,
+        spec = core.channel_job("query", core.query, _rv(request), q,
                                 include_derived=bool(body.get("include_derived")),
                                 dry=bool(body.get("dry_run")),
                                 force=bool(body.get("force")))
@@ -157,7 +181,7 @@ def build_router(vault):
         if not q:
             raise HTTPException(status_code=422,
                                 detail=err(422, "question required"))
-        spec = core.channel_job("ask", core.ask, vault, q,
+        spec = core.channel_job("ask", core.ask, _rv(request), q,
                                 doc=body.get("doc"),
                                 all_docs=bool(body.get("all_docs")),
                                 limit=int(body.get("limit", 10)),
@@ -177,21 +201,24 @@ def build_router(vault):
               "force": bool(body.get("force")),
               "since": body.get("since"),
               "max_cost": body.get("max_cost")}
-        spec = core.channel_job("digest", D.digest_flow, vault, **kw)
+        spec = core.channel_job("digest", D.digest_flow, _rv(request),
+                                 **kw)
         return _submit(spec)
 
     # ------------------------------------------------------- relations --
     @router.get("/relations", dependencies=guard)
-    def api_relations(doc: str = Query(..., min_length=1)):
-        rels = core.related(vault, doc)
+    def api_relations(request: Request,
+                      doc: str = Query(..., min_length=1)):
+        rels = core.related(_rv(request), doc)
         return {"doc": doc, "relations": to_json(rels),
                 "total": len(rels), "schema_version": 1}
 
     # ------------------------------------------------- docmeta（编织页） --
     @router.get("/docmeta", dependencies=guard)
-    def api_docmeta_get(doc: str = Query(..., min_length=1)):
+    def api_docmeta_get(request: Request,
+                        doc: str = Query(..., min_length=1)):
         from cenhua_service import docmeta as DM
-        return to_json(DM.get(vault, doc)) | {"schema_version": 1}
+        return to_json(DM.get(_rv(request), doc)) | {"schema_version": 1}
 
     @router.post("/docmeta", dependencies=guard)
     async def api_docmeta_post(request: Request):
@@ -200,7 +227,7 @@ def build_router(vault):
         doc = (body.get("doc") or "").strip()
         if not doc:
             raise HTTPException(status_code=422, detail=err(422, "doc required"))
-        meta = DM.update(vault, doc, tags=body.get("tags"),
+        meta = DM.update(_rv(request), doc, tags=body.get("tags"),
                          note=body.get("note"))
         return to_json(meta) | {"schema_version": 1}
 
@@ -284,10 +311,12 @@ def build_router(vault):
 
     # ------------------------------------------- 图谱（M4b 任务 6/16） --
     @router.get("/graph", dependencies=guard)
-    def api_graph(entity: str = Query("", max_length=80),
+    def api_graph(request: Request,
+                  entity: str = Query("", max_length=80),
                   max_nodes: int = Query(80, ge=1, le=500)):
         from cenhua_service import graph as G
-        return G.view(vault, entity_kw=entity or None, max_nodes=max_nodes)
+        return G.view(_rv(request), entity_kw=entity or None,
+                      max_nodes=max_nodes)
 
     # ------------------------------------------- 草稿（M4a-7 / M4b-16） --
     @router.post("/draft", dependencies=guard)
@@ -303,7 +332,8 @@ def build_router(vault):
             raise HTTPException(status_code=422,
                                 detail=err(422, "mode must be new/extend/"
                                                "rewrite"))
-        spec = core.channel_job("draft", D.draft_flow, vault, topic=topic,
+        spec = core.channel_job("draft", D.draft_flow, _rv(request),
+                                 topic=topic,
                                 mode=mode,
                                 section=str(body.get("section") or ""),
                                 version=str(body.get("version") or ""),
@@ -316,18 +346,19 @@ def build_router(vault):
 
     # ---------------------------- 草稿编辑三件套（M4b 任务 11 数据面） --
     @router.get("/drafts", dependencies=guard)
-    def api_drafts(topic: str = Query("", max_length=120)):
+    def api_drafts(request: Request,
+                    topic: str = Query("", max_length=120)):
         from cenhua_service import draft as D
-        rows = D.list_drafts(vault, topic=topic)
+        rows = D.list_drafts(_rv(request), topic=topic)
         return {"drafts": [{k: r[k] for k in
                             ("file", "slug", "topic", "version", "date",
                              "mode", "rid")} for r in rows],
                 "total": len(rows), "schema_version": 1}
 
     @router.get("/drafts/{fname}", dependencies=guard)
-    def api_draft_detail(fname: str):
+    def api_draft_detail(request: Request, fname: str):
         from cenhua_service import draft as D
-        out = D.detail(vault, fname)
+        out = D.detail(_rv(request), fname)
         if out.get("rc") != 0:
             raise HTTPException(status_code=404,
                                 detail=err(404, "draft not found", fname))
@@ -341,7 +372,7 @@ def build_router(vault):
         if not isinstance(text, str):
             raise HTTPException(status_code=422,
                                 detail=err(422, "text required"))
-        out = D.save_draft(vault, fname, text,
+        out = D.save_draft(_rv(request), fname, text,
                            do_verify=bool(body.get("verify", True)))
         if out["rc"] == 2:
             raise HTTPException(status_code=404,
@@ -349,22 +380,45 @@ def build_router(vault):
         return out | {"schema_version": 1}
 
     @router.get("/drafts/{fname}/excerpt", dependencies=guard)
-    def api_draft_excerpt(fname: str, doc: str = Query("", max_length=80),
+    def api_draft_excerpt(request: Request,
+                          fname: str, doc: str = Query("", max_length=80),
                           page: str = Query(..., min_length=1),
                           snippet: str = Query(..., min_length=1)):
         """引文穿透预览：doc 缺省用 fname（detail 里 doc 已是补全后的完整 id）。"""
         from cenhua_service import draft as D
-        return D.page_excerpt(vault, doc or fname, page, snippet)
+        return D.page_excerpt(_rv(request), doc or fname, page, snippet)
 
     @router.get("/drafts/-/diff", dependencies=guard)
-    def api_draft_diff(a: str = Query(..., min_length=1),
+    def api_draft_diff(request: Request,
+                       a: str = Query(..., min_length=1),
                        b: str = Query(..., min_length=1)):
         from cenhua_service import draft as D
-        out = D.diff_files(vault, a, b)
+        out = D.diff_files(_rv(request), a, b)
         if out["rc"] == 2:
             raise HTTPException(status_code=404,
                                 detail=err(404, "draft not found",
                                            "%s / %s" % (a, b)))
         return out
+
+    # ------------------------------- 导出下载（M5-3，exporter 复用） --
+    @router.get("/drafts/{fname}/export", dependencies=guard)
+    def api_draft_export(request: Request, fname: str,
+                         fmt: str = Query("md",
+                                          pattern="^(md|html|pdf)$")):
+        """草稿导出下载：md/html/pdf（复用 cenhua_service.exporter）。"""
+        from cenhua_service import exporter as X
+        out = X.export(_rv(request), fname, fmt)
+        if out["rc"] == 2:
+            raise HTTPException(status_code=404,
+                                detail=err(404, "draft not found", fname))
+        if out["rc"] == 1:
+            raise HTTPException(status_code=500, detail=err(
+                500, "export failed", "\n".join(out.get("lines", []))))
+        from fastapi.responses import FileResponse
+        media = {"md": "text/markdown", "html": "text/html",
+                 "pdf": "application/pdf"}[fmt]
+        path = out["path"]
+        return FileResponse(path, media_type=media,
+                            filename=os.path.basename(path))
 
     return router

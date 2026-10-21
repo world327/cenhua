@@ -9,8 +9,23 @@
       <option value="ask" {{ 'selected' if mode=='ask' }}>ask · LLM 深读</option>
     </select>
     <button type="submit">执行</button>
+    <div class="opts" style="width:100%">
+      <label><input type="checkbox" name="regex" value="on" {{ 'checked' if regex }}> 正则</label>
+      <label>大小写
+        <select name="ic" style="width:auto;padding:4px 8px">
+          <option value="on" {{ 'selected' if ic }}>忽略</option>
+          <option value="" {{ 'selected' if not ic }}>区分</option>
+        </select></label>
+      <label>docs 过滤 <input type="text" name="docs" value="{{ docs }}" placeholder="doc id / 关键词，逗号分隔"></label>
+      <label><input type="checkbox" name="derived" value="on" {{ 'checked' if derived }}> query 含衍生</label>
+      <label><input type="checkbox" name="alldocs" value="on" {{ 'checked' if alldocs }}> ask 全库</label>
+      <label>ask limit <input type="number" name="limit" value="{{ limit }}" min="1" max="50"></label>
+      <label><input type="checkbox" name="dry" value="on" {{ 'checked' if dry }}> dry-run</label>
+      <label><input type="checkbox" name="force" value="on" {{ 'checked' if force }}> force</label>
+    </div>
   </form>
-  <p class="muted">find = 词命中 + 页/行定位（零成本）；query/ask = LLM 长任务，进度经 SSE 流式显示。</p>
+  <p class="muted">find = 词命中 + 页/行定位（零成本，正则/大小写/docs 过滤生效）；
+  query/ask = LLM 长任务（衍生/全库/limit/dry-run/force 生效），进度经 SSE 流式显示。</p>
 </div>
 
 {% if q and mode == 'find' %}

@@ -63,6 +63,7 @@ cenhua ask --doc contract "终止罚则是什么"
 
 ```
 VAULTS    init · vaults · use · status · doctor · rm · config · sources
+          backup [--dest PATH] [--yes] · restore <backup.tar.gz> [--name N] [--yes]   （v0.7.0 起，tar.gz 备份/恢复）
 INTAKE    add <files|dir|--inbox> · add --url <url> [--url ...] ·
           add --url-file <path> [--no-render] · watch [--interval N] [--once] [--urls]
           （.eml/.msg 邮件自动展开附件，v0.3.2 起）
@@ -351,14 +352,17 @@ vault.yaml `api_token`；**未配置 = 所有页面和 API 一律拒绝**（API 
 `X-Cenhua-Token: <token>`（或 `Authorization: Bearer <token>`）头。
 滑动窗口限流（默认 30 次/60 秒）超限返回 429 + `Retry-After` 头。
 
-**四页**（浏览器打开 http://127.0.0.1:8765 自动跳 /login）：
+**页面**（浏览器打开 http://127.0.0.1:8765 自动跳 /login；导航栏
+下拉可直接切换知识库，多库语义见下）：
 
 | 页面 | 路径 | 功能 |
 |---|---|---|
-| 摄取 | `/ingest` | 拖拽上传 / URL 收录，SSE 实时进度，失败可重试 |
-| 检索 | `/search` | 命中 + 延展 + 引文 snippet + 关联四段结果 |
+| 摄取 | `/ingest` | 拖拽上传（支持多文件）/ URL 收录，SSE 实时进度 |
+| 检索 | `/search` | find 即时检索（正则/大小写/docs 过滤）+ query/ask LLM 任务（dry-run/force/limit 等） |
 | 编织 | `/weave` | 文档列表 + 标签/笔记编辑 + Mermaid 关联图 |
-| 洞察 | `/insights` | digest 产物只读浏览（草稿编辑随 M4 交付） |
+| 图谱 | `/graph` | 力导向知识图谱（M4 起） |
+| 洞察 | `/insights` | digest 产物浏览 + 页面直接触发周记/月报/季报（M5-3 起） |
+| 草稿 | `/drafts` | 主题草稿列表/编辑/版本对比/引文穿透（M4 起） |
 
 **API 端点**（前缀 `/api/v1`，响应均带 `schema_version`）：
 
@@ -372,7 +376,16 @@ vault.yaml `api_token`；**未配置 = 所有页面和 API 一律拒绝**（API 
 | `/docmeta` | GET·POST | 文档标签/笔记读写 |
 | `/jobs/{id}/status` `/jobs/{id}/result` | GET | 任务状态（增量 cursor）/ 结果 |
 | `/jobs/{id}` | GET(SSE) | 任务进度流；断线带 cursor 重连只重放未消费段 |
-| `/graph` `/draft` | — | v0.5 恒 404 + 版本提示（随 M4 v0.6 交付） |
+| `/graph` | GET | 知识图谱视图（`entity`/`max_nodes`） |
+| `/draft` | POST | 草稿生成长任务（M4 起） |
+| `/drafts` `/drafts/{f}` | GET·PUT | 草稿列表 / 详情 / 保存重验（M4 起） |
+| `/drafts/{f}/export` | GET | 导出下载 `?fmt=md\|html\|pdf`（M5-3 起） |
+| `/vaults` | GET | 库列表 + 当前库（M5-3 多库切换） |
+
+**多库切换（v0.7.0 · M5-3 起）**：一个 web 进程绑定一个启动库，
+鉴权始终用启动库的 token；数据面（所有 `/api/v1` 端点与页面）可切库——
+API 加 `?vault=库名`（非法名 400），页面用导航下拉（写 `cenhua_vault`
+cookie，持久生效）。`GET /api/v1/vaults` 可查库列表与当前库。
 
 每个请求分配全链路 rid，响应头 `X-Cenhua-Rid`，结构化日志落
 `vaults/<库>/logs/web-YYYYMM.log`（token 不落盘）。
@@ -526,7 +539,14 @@ cenhua use work                      # 切换默认库
 cenhua status                        # 库内文档/待处理/可检索状态
 cenhua doctor                        # 环境自检（迷路时先跑这个）
 cenhua rm work --yes                 # 删除库
+cenhua backup --yes                  # 备份当前库（默认 <HOME>/backups/）
+cenhua restore <backup.tar.gz> --yes # 从备份恢复（--name 可改名）
 ```
+
+> 备份/恢复（v0.7.0 起）：`backup` 把整个 vault（engine 索引、文本层、
+> works 产物、meta、logs）打包成 tar.gz，排除可重建的 `inbox/.processed`
+> 与 `inbox/.failed`。`restore` 默认恢复到原库名，`--name` 可改名；
+> 目标库非空时需 `--yes` 确认。
 
 ## 6. 网关与存储
 

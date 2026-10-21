@@ -40,6 +40,8 @@ VAULTS
   rm <name> [--yes]                 delete a vault
   config <key> [value] [--vault N]  read/write vault.yaml (never secrets)
   sources [kw]                      provenance: origin file + archived copy
+  backup [--dest PATH] [--yes]      tar.gz 打包 vault（默认 <HOME>/backups/）
+  restore <backup.tar.gz> [--name N] [--yes]  从备份恢复 vault
 
 INTAKE
   add <file|dir>... [--no-flatten]  ingest now (any format, sha1-deduped;
@@ -394,6 +396,16 @@ def main():
         import m_vault
         m_vault.sources(v, pos[0] if pos else "")
         return 0
+    if cmd == "backup":
+        import m_vault
+        dest = rest[rest.index("--dest") + 1] if "--dest" in rest else ""
+        return m_vault.backup(v, dest=dest, yes=flag(rest, "--yes"))
+    if cmd == "restore":
+        import m_vault
+        if not pos:
+            L.die("usage: cenhua restore <backup.tar.gz> [--name N] [--yes]")
+        name = rest[rest.index("--name") + 1] if "--name" in rest else ""
+        return m_vault.restore(pos[0], name=name, yes=flag(rest, "--yes"))
 
     # ---- intake ------------------------------------------------------------
     if cmd == "add":

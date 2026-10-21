@@ -278,11 +278,19 @@ hint 二段验证成本进 ROI 账：query 台账记 `hint_docs`/`hint_dropped`�
   `api_token`）+ `check_token` fail-closed 双拒（未配置拒一切、空 token 拒，
   `hmac.compare_digest` 常数时间）+ `RateLimiter` 滑动窗口（超限 429 +
   `Retry-After`）。纯标准库，可脱离 fastapi 单测。
-- `api.py`：`build_router(vault, deps)` → `/api/v1/*`（ingest/documents/
-  stats/find/query/ask/digest/relations/docmeta/jobs…）；长任务端点返回
-  `job_id`+`events_url`；`graph`/`draft` 恒 404 + 版本提示（随 M4 交付）。
+- `api.py`：`build_router(vault)` → `/api/v1/*`（ingest/documents/
+  stats/find/query/ask/digest/relations/docmeta/jobs/graph/draft/drafts/
+  vaults/export…）；长任务端点返回 `job_id`+`events_url`。
   错误统一 `{"detail": {error, detail, schema_version}}`；未知 job 恒定
   `aborted/stale`（200 而非 404，与 ADR-001 口径一致）。
+- 请求级多库（M5-3）：鉴权域 = 启动 vault（进程管理 token，fail-closed
+  不变）；数据面端点均支持 `?vault=NAME` 切库，白名单 = `list_vaults()`
+  （按 vault.yaml 存在过滤），非法名 400。`GET /vaults` 返回库列表 +
+  当前库。`docs` 过滤参数在 core.find 边界归一化（JSON list 与 CLI
+  逗号字符串同语义）。
+- 导出下载（M5-3）：`GET /drafts/{fname}/export?fmt=md|html|pdf` 复用
+  `exporter.export`（产物同径落 `works/exports/`），`FileResponse` +
+  `Content-Disposition: attachment`。
 - `pages.py`：Jinja2+HTMX 四页（摄取/检索/编织/洞察浏览）+ `/login`
   httpOnly cookie 会话；insights 正文渲染前消毒（`<script>`/onerror）+
   文件名防穿越。
@@ -508,7 +516,74 @@ CENHUA_OCR_MIN_CONF=0.9 cenhua add --inbox
 | `CENHUA_WEB_HEARTBEAT_S` / `CENHUA_WEB_KEEPALIVE_S` | env / vault.yaml `web_heartbeat_s` / `web_keepalive_s` | `10` / `120` | SSE 心跳间隔 / uvicorn keep-alive 秒（M3b） |
 | `CENHUA_RERANK` | env / vault.yaml `rerank` | 开（`0/off/false/no` 关闭） | query 粗召回后小模型重排开关；`--no-rerank` 单命令关闭（M4c） |
 
-## 6. 扩展点
+| `CENHUA_LOG_MAX_BYTES` / `CENHUA_LOG_BACKUPS` | env | `10485760` / `5` | 日志大小轮转阈值 / 备份份数（M5-1） |
+| `CENHUA_RUN_DIR` / `CENHUA_LOG_DIR` | env | `<skill>/run` / `<skill>/logs` | service.sh 的 PID 文件 / 服务日志目录（M5-1） |
+
+## 6. 部署与运维（M5-1）
+
+### 6.1 容器化部署
+- `deploy/Dockerfile` + `deploy/docker-compose.yml`：一键起 Web 服务（端口 8765）。
+  数据卷 `cenhua-data` 挂到 `/data/cenhua`（= `CENHUA_HOME`），vault 持久化。
+- 凭证不落盘：`CENHUA_API_TOKEN` / `PI_*` 经 compose `environment` 注入。
+- 健康检查：compose `healthcheck` 探 `GET /health`（30s 间隔 / 20s 启动宽限）。
+
+### 6.2 服务管理
+- `deploy/service.sh`（start/stop/restart/status）：后台 `nohup & disown` 起
+  uvicorn，PID 文件锁防重复，启动后轮询 `/health` 就绪（最多 20s）。
+- `deploy/cenhua-web.service`：systemd 单元，`Restart=always`，凭证从
+  `/etc/cenhua/cenhua.env` 读取（chmod 600）。
+- `deploy/watchdog.sh`：监控 `/health`，异常重启；启动保护期 + 冷却窗口 +
+  重启上限 + PID 文件锁（AGENTS.md §5 铁律）。
+
+### 6.3 日志
+- `Vault.log` 按月文件 + 大小轮转（`CENHUA_LOG_MAX_BYTES` / `CENHUA_LOG_BACKUPS`）。
+- 落盘前脱敏：`PI_KEY`/`token`/`secret`/`Bearer` 值替换为 `***`，绝对路径替换为
+  `<path>`（`m_lib._redact`）。
+
+### 6.4 备份恢复
+- `cenhua backup [--dest PATH] [--yes]`：tar.gz 打包 vault（默认
+  `<HOME>/backups/<vault>-<date>.tar.gz`），排除可重建的 `inbox/.processed`、
+  `inbox/.failed`。
+- `cenhua restore <backup.tar.gz> [--name N] [--yes]`：恢复（可改名）；目标
+  vault 非空时需 `--yes` 确认。
+
+### 6.5 探活端点
+- `GET /health`：不经过 token 鉴权（供容器/看门狗探活），返回
+  `{status, version, vault, docs, gateway_ready, disk_free_bytes, ts}`。
+
+### 6.6 页面多库切换（M5-3）
+- 页面顶部下拉 = `POST /vault/switch`（白名单校验后才写 `cenhua_vault`
+  httpOnly cookie，非法名不写静默回落）；解析优先级 `?vault=` > cookie >
+  启动库，页面侧非法名**安全回落**启动库（库被删等残留场景保证可用），
+  API 侧非法名 400。鉴权始终走启动库 token，切换只切数据面。
+
+## 7. 性能与压测（M5-2）
+
+### 7.1 压测脚本
+- `scripts/bench_load.py`：QPS / 延迟分位数(p50/p95/p99) / 成功率基准。
+  三种模式：`find`（service 层文本层扫描）、`ingest`（摄取单文件）、
+  `web`（Web API，支持 GET/POST + JSON body）。
+  预热 + 逐步并发 + 多轮均值（AGENTS.md 铁律）。
+
+### 7.2 find 多进程并行扫描
+- **问题**：`find` 是纯 Python 文本层扫描，受 GIL 限制。多线程并发不仅不
+  提升吞吐，反而因锁竞争导致延迟暴涨（实测 2000 文档并发 4 时 p50 从 71ms
+  飙到 1477ms）。
+- **优化**：文档数 > `CENHUA_FIND_MP_THRESHOLD`（默认 200）时，用**复用进程池**
+  （`multiprocessing.Pool` 模块级缓存）按文件分片并行扫描，绕过 GIL。
+  小库保持单进程（避免进程启动开销）。
+- **实测（2000 文档）**：
+
+  | 场景 | 优化前 | 优化后（复用池） | 提升 |
+  |---|---|---|---|
+  | 并发4 QPS | 2.7 | 7.6 | +181% |
+  | 并发4 p50 | 1477ms | 337ms | -77% |
+  | 单并发 p50 | 71ms | 96ms | +35%（IPC 开销，可接受） |
+
+- **正确性**：`_scan_file` 提取为顶层函数，进程池 `starmap` 调用；结果与
+  单进程完全一致（test_core.test_60 防回潮）。
+
+## 8. 扩展点
 
 - **新增格式**：在 `m_lib.EXTS` 注册扩展名，引擎 `conv_*` 处理转换。
 - **新增 OCR 后端**：替换 `m_ocr._get_engine()` 的导入与 `_ocr_result()`

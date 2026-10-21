@@ -27,7 +27,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENGINE = os.path.join(HERE, "engine")
 SKILL_DIR = os.path.dirname(HERE)          # <skill>/scripts -> <skill>
-VERSION = "0.6.2"
+VERSION = "0.7.0"
 
 # ---------------------------------------------------------- storage root ----
 # Where vaults (documents, indexes, archived originals) live is a USER
@@ -265,12 +265,68 @@ class Vault:
             return 8
 
     # ------------------------------------------------------------- logging --
+    # 日志轮转 + 脱敏（M5-1）：按月轮转（RotatingFileHandler 语义），
+    # 敏感信息（token / 绝对路径 / PI_KEY 前缀）落盘前脱敏。
+    # 轮转阈值可配：CENHUA_LOG_MAX_BYTES（默认 10MB）/ CENHUA_LOG_BACKUPS（默认 5）。
     def log(self, stream, text):
         os.makedirs(self.logs, exist_ok=True)
         path = os.path.join(self.logs, f"{stream}-{time.strftime('%Y%m')}.log")
+        max_bytes = _log_max_bytes()
+        backups = _log_backups()
+        lines = text if isinstance(text, list) else [text]
+        for line in lines:
+            safe = _redact(line)
+            _append_rotating(path, f"{time.strftime('%F %T')}\t{safe}\n",
+                             max_bytes, backups)
+
+
+# ------------------------------------------------------------ log helpers --
+def _log_max_bytes():
+    try:
+        return int(os.environ.get("CENHUA_LOG_MAX_BYTES", "10485760"))
+    except ValueError:
+        return 10485760
+
+
+def _log_backups():
+    try:
+        return int(os.environ.get("CENHUA_LOG_BACKUPS", "5"))
+    except ValueError:
+        return 5
+
+
+# 敏感信息脱敏（M5-1）：token / 绝对路径 / PI_KEY 前缀。日志只落脱敏后的文本。
+_REDACT_PATTERNS = (
+    (re.compile(r"(?i)(PI_KEY|api[_-]?key|token|secret|password)\s*[=:]\s*\S+"),
+     r"\1=***"),
+    (re.compile(r"(?i)(bearer\s+)\S+"), r"\1***"),
+    (re.compile(r"(/home/[^\s\"']+|/root/[^\s\"']+|/tmp/[^\s\"']+)"),
+     r"<path>"),
+)
+
+
+def _redact(text):
+    for pat, repl in _REDACT_PATTERNS:
+        text = pat.sub(repl, text)
+    return text
+
+
+def _append_rotating(path, line, max_bytes, backups):
+    """按月日志文件的大小轮转：超过 max_bytes 时把旧文件滚动为 .1/.2/..."""
+    try:
+        if os.path.isfile(path) and os.path.getsize(path) >= max_bytes:
+            for i in range(backups, 0, -1):
+                src = f"{path}.{i - 1}" if i > 1 else path
+                dst = f"{path}.{i}"
+                if os.path.isfile(src):
+                    os.replace(src, dst)
+            # 滚动后重建空主文件
+            open(path, "a", encoding="utf-8").close()
         with open(path, "a", encoding="utf-8") as f:
-            for line in (text if isinstance(text, list) else [text]):
-                f.write(f"{time.strftime('%F %T')}\t{line}\n")
+            f.write(line)
+    except OSError:
+        # 日志失败绝不影响主流程（降级静默）
+        pass
 
 
 # --------------------------------------------------------- gateway / env ----

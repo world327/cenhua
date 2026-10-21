@@ -4,7 +4,7 @@
   <div class="card">
     <h3>文件上传</h3>
     <div id="drop" class="drop">拖文件到这里，或
-      <input type="file" id="f" style="width:auto;border:0">
+      <input type="file" id="f" multiple style="width:auto;border:0">
     </div>
     <div id="fres" hx-swap-oob="true"></div>
     <div id="out"></div>
@@ -31,12 +31,20 @@
   var drop=document.getElementById('drop'), f=document.getElementById('f'), out=document.getElementById('out');
   ['dragover','dragenter'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add('over');});});
   ['dragleave','drop'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove('over');});});
-  drop.addEventListener('drop',function(e){ if(e.dataTransfer.files.length){ upload(e.dataTransfer.files[0]); }});
-  f.addEventListener('change',function(){ if(f.files.length) upload(f.files[0]); });
-  function upload(file){
-    var fd=new FormData(); fd.append('file',file);
-    out.innerHTML='<p class="muted">uploading '+file.name+' …</p>';
-    fetch('/ingest/file',{method:'POST',body:fd}).then(function(r){return r.text();}).then(function(t){out.innerHTML=t;});
+  drop.addEventListener('drop',function(e){ if(e.dataTransfer.files.length){ uploadAll(e.dataTransfer.files); }});
+  f.addEventListener('change',function(){ if(f.files.length) uploadAll(f.files); });
+  function uploadAll(files){
+    var names=[]; for(var i=0;i<files.length;i++) names.push(files[i].name);
+    out.innerHTML='<p class="muted">uploading '+names.join(', ')+' …</p>';
+    var done=0, results=[];
+    for(var i=0;i<files.length;i++) post(files[i]);
+    function post(file){
+      var fd=new FormData(); fd.append('file',file);
+      fetch('/ingest/file',{method:'POST',body:fd}).then(function(r){return r.text();}).then(function(t){
+        results.push(t); done++;
+        if(done===files.length){ out.innerHTML=results.join(''); }
+      });
+    }
   }
 })();
 </script>

@@ -21,6 +21,16 @@
     <a href="/drafts" class="{{ 'on' if page in ('drafts','draft_edit') }}">草稿</a>
     <a href="/logout" class="out">退出</a>
   </nav>
+  {% if vaults is defined and vaults %}
+  <form method="post" action="/vault/switch" class="vform">
+    <input type="hidden" name="next" value="{{ request.url.path }}">
+    <select name="vault" onchange="this.form.submit()" title="切换知识库">
+      {% for v in vaults %}
+      <option value="{{ v }}" {{ 'selected' if v == vault_name }}>{{ v }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
   <span class="muted">docs {{ stats.docs }} · text {{ stats.text_have }} · inbox {{ stats.inbox_pending }}{% if not stats.gateway_ready %} · <b class="bad">网关未配置</b>{% endif %}</span>
 </header>
 <main>

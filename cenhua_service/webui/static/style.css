@@ -37,3 +37,9 @@ pre.mermaid { background:var(--card); border:1px solid var(--line); border-radiu
 a.button, .sec.button { background:#eef1f6; color:var(--fg); border-radius:8px; padding:8px 16px; text-decoration:none; display:inline-block; }
 .graph-tip { position:absolute; background:#10151f; color:#d7e0ee; font-size:12px; padding:5px 9px; border-radius:6px; pointer-events:none; max-width:240px; z-index:5; }
 pre.log.ok { color:#8fe3b5; } pre.log.bad { color:#f0a898; }
+
+/* ---- M5-3：多库切换 + 检索高级项 ---- */
+.vform select { width:auto; padding:4px 8px; font-size:13px; }
+.opts { display:flex; flex-wrap:wrap; gap:14px; margin:10px 0 4px; align-items:center; }
+.opts label { color:var(--mut); font-size:13px; display:flex; gap:4px; align-items:center; }
+.opts input[type=text], .opts input[type=number] { width:170px; padding:4px 8px; }

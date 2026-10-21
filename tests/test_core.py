@@ -181,6 +181,35 @@ class CoreTest(unittest.TestCase):
             L.run_engine = orig_re
             L.sha1 = orig_sha1
 
+    # ------------------------------------------------ find 多进程（M5-2） --
+    def test_60_find_mp_consistent_with_single(self):
+        """多进程并行扫描结果必须与单进程完全一致（M5-2 性能优化防回潮）。"""
+        # 种 3 个文档（超过最小阈值）
+        for i in range(3):
+            did = f"pi-mp{i}"
+            with open(os.path.join(self.vault.textdir, did + ".txt"),
+                      "w", encoding="utf-8") as f:
+                f.write("=== PAGE 1 ===\n合同违约金条款内容\n")
+        led = L.read_json(os.path.join(self.vault.store,
+                                       "ingest_manifest.json"), {}) or {}
+        for i in range(3):
+            led[f"pi-mp{i}"] = {"name": f"doc{i}.pdf", "tier": "primary",
+                                "ts": "0"}
+        with open(os.path.join(self.vault.store, "ingest_manifest.json"),
+                  "w", encoding="utf-8") as f:
+            json.dump(led, f)
+        # 单进程
+        os.environ["CENHUA_FIND_MP_THRESHOLD"] = "999999"
+        h1 = core.find(self.vault, ["合同", "违约金"])
+        # 多进程
+        os.environ["CENHUA_FIND_MP_THRESHOLD"] = "1"
+        h2 = core.find(self.vault, ["合同", "违约金"])
+        os.environ.pop("CENHUA_FIND_MP_THRESHOLD", None)
+        self.assertEqual(
+            sorted((h.doc, h.page, h.line) for h in h1),
+            sorted((h.doc, h.page, h.line) for h in h2))
+        self.assertGreater(len(h2), 0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
