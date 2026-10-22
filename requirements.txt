@@ -9,7 +9,7 @@ openai>=1.30
 
 # PageIndex is on official PyPI ONLY (some mirrors lack it and hang).
 # If this fails on a mirror: pip install pageindex --index-url https://pypi.org/simple
-pageindex>=0.1
+pageindex>=0.4.4
 
 # Optional semantic recall layer (`cenhua seek` / `cenhua index build`).
 # The CLI degrades gracefully without numpy; remove this line if you never
