@@ -77,6 +77,13 @@ class OcrTest(unittest.TestCase):
         os.environ.pop("CENHUA_OCR", None)
         self.tmp = tempfile.mkdtemp(prefix="cenhua-ocr-src-")
 
+    def _restore_env(self, saved):
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
     def tearDown(self):
         m_ocr._ENG = self.saved_eng
         if self.saved_env is None:
@@ -203,6 +210,11 @@ class OcrTest(unittest.TestCase):
 
     # -------------------------------------------------------------- wiring --
     def test_10_ingest_one_routes_and_restores(self):
+        # 引擎路径需要网关（chat_ready=True），否则 M5-4 离线降级会短路
+        _saved_env = {k: os.environ.get(k) for k in ("PI_BASE", "PI_KEY")}
+        os.environ["PI_BASE"] = "http://localhost:9999"
+        os.environ["PI_KEY"] = "test-key"
+        self.addCleanup(self._restore_env, _saved_env)
         m_ocr._ENG = FakeEngine(["接线测试 OCR 文本 beta 42"])
         png = self.src("接线.png")
         tiny_png(png)
@@ -242,6 +254,11 @@ class OcrTest(unittest.TestCase):
         """防回潮：真机 pi_ingest 输出是多行（先 converting/indexing 进度行，
         最后一行才是 `+ name -> doc_id`）。ADDED_RE 缺 re.M 时该场景曾被
         误判 failed（文件误进 .failed/、dedupe 漏记 → 重复计费）。"""
+        # 引擎路径需要网关（chat_ready=True），否则 M5-4 离线降级会短路
+        _saved_env = {k: os.environ.get(k) for k in ("PI_BASE", "PI_KEY")}
+        os.environ["PI_BASE"] = "http://localhost:9999"
+        os.environ["PI_KEY"] = "test-key"
+        self.addCleanup(self._restore_env, _saved_env)
         m_ocr._ENG = FakeEngine(["多行输出测试 gamma 7"])
         png = self.src("多行.png")
         tiny_png(png)
