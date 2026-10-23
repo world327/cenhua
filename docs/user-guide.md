@@ -34,6 +34,9 @@ git clone https://github.com/world327/cenhua && cd cenhua
 export PI_BASE=https://api.example.com/v1  PI_KEY=***  PI_MODEL=openai/gpt-4o-mini
 ```
 
+> **macOS（Mac mini / Apple Silicon）**：见 [macOS 专属安装指南](install-macos.md)，
+> 覆盖依赖兼容性、venv 安装、launchd 常驻与常见问题。
+
 ### 1.3 安装时的两个确认
 
 安装时智能体会向你确认两件事（不可代答）：
